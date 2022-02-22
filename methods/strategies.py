@@ -9,7 +9,7 @@ from torch.utils.data import Subset
 
 from methods.plugins.cml import ContinualMetricLearningPlugin
 from methods.plugins.er import EmbeddingRegularizationPlugin
-from models.utils import MultiHeadBackbone
+from models.utils import MultiHeadBackbone, EmbeddingModelDecorator
 
 
 class EmbeddingRegularization(BaseStrategy):

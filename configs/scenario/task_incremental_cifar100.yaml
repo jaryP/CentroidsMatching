@@ -1,0 +1,5 @@
+dataset: cifar100
+scenario: splitcifar100
+n_tasks: 5
+return_task_id: true
+shuffle: true

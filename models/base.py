@@ -25,7 +25,6 @@ def get_backbone(name: str, channels: int = 3):
 
         return model
 
-
     elif 'resnet' in name:
         if name == 'resnet20':
             return resnet20()
@@ -39,25 +38,26 @@ def get_cl_model(model_name: str,
                  method_name: str,
                  input_shape: Tuple[int, int, int],
                  sit: bool = False):
+
     backbone = get_backbone(model_name, channels=input_shape[0])
     x = torch.randn((1,) + input_shape)
     o = backbone(x)
 
     size = np.prod(o.shape)
 
+    def heads_generator(i, o):
+        return nn.Sequential(nn.ReLU(),
+                             nn.Linear(i, i),
+                             nn.ReLU(),
+                             nn.Linear(i, o))
+
     if method_name != 'clm':
         if sit:
-            classifier = MultiHeadClassifier(size)
-        else:
             classifier = IncrementalClassifier(size)
-
+        else:
+            # classifier = CustomMultiHeadClassifier(size, heads_generator)
+            classifier = MultiHeadClassifier(size)
     else:
-        def heads_generator(i, o):
-            return nn.Sequential(nn.ReLU(),
-                                 nn.Linear(i, i),
-                                 nn.ReLU(),
-                                 nn.Linear(i, o))
-
         classifier = CustomMultiHeadClassifier(size, heads_generator,
                                                size)
 

@@ -17,10 +17,12 @@ from avalanche.evaluation.metrics import forgetting_metrics, \
     confusion_matrix_metrics, disk_usage_metrics, bwt_metrics, BWT
 
 from methods.strategies import EmbeddingRegularization
-from models.base import MultiHeadBackbone, EmbeddingModelDecorator, \
-    CustomMultiTaskDecorator
+# from models.base import MultiHeadBackbone, EmbeddingModelDecorator, \
+#     CustomMultiTaskDecorator
 from avalanche.logging import InteractiveLogger
 from avalanche.training.plugins import EvaluationPlugin
+
+from models.base import get_cl_model
 
 
 class AlexNet(nn.Module):
@@ -88,9 +90,11 @@ class Head(nn.Module):
 
 backbone = AlexNet()
 
-model = MultiHeadBackbone(backbone=backbone,
-                          backbone_output_size=256,
-                          incremental_classifier_f=lambda x, y: Head(x, y))
+# model = MultiHeadBackbone(backbone=backbone,
+#                           backbone_output_size=256,
+#                           incremental_classifier_f=lambda x, y: Head(x, y))
+
+# model = get_cl_model('resnet20', 'gem', (3, 32, 32))
 
 train_transform = Compose([ToTensor(),
                            RandomCrop(32, padding=4),
@@ -113,7 +117,7 @@ tasks = SplitCIFAR10(n_experiences=5,
                      )
 
 # model = as_multitask(backbone, 'classifier')
-
+#
 # model = EmbeddingModelDecorator(model)
 
 def heads_generator(i, o):
@@ -121,8 +125,8 @@ def heads_generator(i, o):
                          nn.ReLU(),
                          nn.Linear(i // 2, o))
 
-model = CustomMultiTaskDecorator(backbone, 'classifier', heads_generator)
-model = EmbeddingModelDecorator(model)
+# model = CustomMultiTaskDecorator(backbone, 'classifier', heads_generator)
+# model = EmbeddingModelDecorator(model)
 
 parameters = chain(model.parameters())
 
@@ -163,14 +167,14 @@ strategy = BaseStrategy(model=model,
 #                                    evaluator=eval_plugin,
 #                                    device='cuda:0')
 
-# strategy = GEM(model=model,
-#                patterns_per_exp=200,
-#                criterion=criterion,
-#                optimizer=opt,
-#                train_epochs=5,
-#                train_mb_size=32,
-#                evaluator=eval_plugin,
-#                device='cuda:0')
+strategy = GEM(model=model,
+               patterns_per_exp=200,
+               criterion=criterion,
+               optimizer=opt,
+               train_epochs=5,
+               train_mb_size=32,
+               evaluator=eval_plugin,
+               device='cuda:0')
 
 results = []
 for experience in tasks.train_stream:

@@ -1,25 +1,24 @@
-from typing import Optional, Any
-
-import avalanche
+import os
 
 
-def get_tasks(name: str,
-              tasks: int,
-              shuffle: bool = True,
-              train_transform: Optional[Any] = None,
-              eval_transform: Optional[Any] = None,
-              seed: Optional[int] = None):
+def get_save_path(scenario_name: str,
+                  plugin: str,
+                  plugin_name: str,
+                  model_name: str,
+                  exp_n: int = None):
 
-    name = name.lower()
+    base_path = os.getcwd()
+    if exp_n is None:
+        return os.path.join(base_path,
+                            model_name,
+                            scenario_name,
+                            plugin,
+                            plugin_name)
 
-    for v in dir(avalanche.benchmarks):
-        if v.lower() == name:
-            return getattr(avalanche.benchmarks, v)(n_experiences=tasks,
-                                                    return_task_id=True,
-                                                    shuffle=shuffle,
-                                                    train_transform=train_transform,
-                                                    eval_transform=eval_transform,
-                                                    seed=seed)
-
-
-get_tasks('splitmnist', 1)
+    experiment_path = os.path.join(base_path,
+                                   model_name,
+                                   scenario_name,
+                                   plugin,
+                                   plugin_name,
+                                   f'exp_{exp_n}')
+    return experiment_path

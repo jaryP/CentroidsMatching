@@ -35,7 +35,6 @@ def get_scenario(train_dataset,
                  train_transform: Optional[Any] = None,
                  eval_transform: Optional[Any] = None,
                  seed: Optional[int] = None):
-
     if return_task_id:
         return nc_benchmark(
             train_dataset=train_dataset,
@@ -74,13 +73,15 @@ def get_dataset_by_name(name: str, root: str = None):
 
 
 def get_dataset_nc_scenario(name: str,
+                            scenario: str,
                             n_tasks: int,
                             return_task_id: bool,
                             shuffle: bool = True,
                             seed: Optional[int] = None):
     name = name.lower()
+    scenario = scenario.lower()
 
-    avalanche_scenario = nc_scenario(name=name,
+    avalanche_scenario = nc_scenario(name=scenario,
                                      n_tasks=n_tasks,
                                      return_task_id=return_task_id,
                                      shuffle=shuffle,

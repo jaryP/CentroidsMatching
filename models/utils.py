@@ -1,4 +1,4 @@
-from typing import Union, Callable, Tuple, Dict
+from typing import Union, Callable, Tuple, Dict, Iterator
 
 import torch
 from avalanche.benchmarks.utils import AvalancheDataset
@@ -6,6 +6,7 @@ from avalanche.benchmarks.utils.dataset_utils import ConstantSequence
 from avalanche.models import DynamicModule, MultiTaskModule
 from avalanche.models.helper_method import MultiTaskDecorator
 from torch import nn
+from torch.nn import Parameter
 
 
 class CustomMultiHeadClassifier(MultiTaskModule):
@@ -346,7 +347,6 @@ class CombinedModel(MultiTaskModule):
                                   device=out_task.device)
             out[task_mask] = out_task
         return out
-
 
 # class CombinedModel(nn.Module):
 #     def __init__(self, backbone: nn.Module, classifier: nn.Module):
