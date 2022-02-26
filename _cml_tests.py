@@ -10,7 +10,7 @@ from avalanche.models import DynamicModule
 from torch import nn, log_softmax, softmax, cosine_similarity
 from torch.nn import CrossEntropyLoss
 from torch.nn.functional import normalize
-from torch.optim import Adam
+from torch.optim import Adam, SGD
 from torch.utils.data import Subset, DataLoader
 
 from torchvision.transforms import Compose, ToTensor, RandomHorizontalFlip, \
@@ -25,6 +25,7 @@ from methods.strategies import EmbeddingRegularization, ContinualMetricLearning
 from avalanche.logging import InteractiveLogger
 from avalanche.training.plugins import EvaluationPlugin
 
+from models.base import get_cl_model
 from models.utils import CustomMultiTaskDecorator, EmbeddingModelDecorator
 
 
@@ -71,6 +72,7 @@ def calculate_similarity(x, y, similarity='euclidean', sigma=1):
         assert False
 
     return dist
+
 
 def calculate_centroids(data: Sequence,
                         model,
@@ -129,7 +131,6 @@ def calculate_centroids(data: Sequence,
                                    torch.cov(embs[c].T) + eye)
                 for c in classes]
         # return [MultivariateNormal(m, s) for m, s in zip(means, variances)]
-
 
 class AlexNet(nn.Module):
     def __init__(self):
@@ -220,44 +221,50 @@ tasks = SplitCIFAR10(n_experiences=5,
 
 # model = EmbeddingModelDecorator(model)
 
-def heads_generator(i, o):
-    return nn.Sequential(nn.ReLU(),
-                         nn.Linear(i, i),
-                         nn.ReLU(),
-                         nn.Linear(i, o))
+# def heads_generator(i, o):
+#     return nn.Sequential(nn.ReLU(),
+#                          nn.Linear(i, i),
+#                          nn.ReLU(),
+#                          nn.Linear(i, o))
+#
+#
+# model = CustomMultiTaskDecorator(backbone, 'classifier', heads_generator,
+#                                  out_features=256)
+# model = EmbeddingModelDecorator(model)
+
+model = get_cl_model(model_name='alexnet',
+                     input_shape=(3, 32, 32),
+                     method_name='cml',
+                     sit=False)
 
 
-model = CustomMultiTaskDecorator(backbone, 'classifier', heads_generator,
-                                 out_features=256)
-model = EmbeddingModelDecorator(model)
-
-
-parameters = chain(model.parameters())
-
-opt = Adam(parameters, lr=0.001)
-
-criterion = CrossEntropyLoss()
-
-eval_plugin = EvaluationPlugin(
-    accuracy_metrics(minibatch=False, epoch=False, experience=True,
-                     stream=True),
-    # loss_metrics(minibatch=True, epoch=True, experience=True, stream=True),
-    # timing_metrics(epoch=True),
-    # forgetting_metrics(experience=True, stream=True),
-    # cpu_usage_metrics(experience=True),
-    # confusion_matrix_metrics(num_classes=tasks.n_classes, save_image=False, stream=True),
-    # disk_usage_metrics(minibatch=True, epoch=True, experience=True, stream=True),
-    bwt_metrics(experience=True, stream=True),
-    loggers=[InteractiveLogger()],
-    benchmark=tasks,
-    strict_checks=True
-)
+# parameters = chain(model.parameters())
+#
+# opt = Adam(parameters, lr=0.001)
+# opt = SGD(model.parameters(), lr=0.01, momentum=0.9)
+#
+# criterion = CrossEntropyLoss()
+#
+# eval_plugin = EvaluationPlugin(
+#     accuracy_metrics(minibatch=False, epoch=False, experience=True,
+#                      stream=True),
+#     # loss_metrics(minibatch=True, epoch=True, experience=True, stream=True),
+#     # timing_metrics(epoch=True),
+#     # forgetting_metrics(experience=True, stream=True),
+#     # cpu_usage_metrics(experience=True),
+#     # confusion_matrix_metrics(num_classes=tasks.n_classes, save_image=False, stream=True),
+#     # disk_usage_metrics(minibatch=True, epoch=True, experience=True, stream=True),
+#     bwt_metrics(experience=True, stream=True),
+#     loggers=[InteractiveLogger()],
+#     benchmark=tasks,
+#     strict_checks=True
+# )
 
 classes_centroids = []
 tasks_centroids = []
 
 device = 'cuda:0'
-epochs = 20
+epochs = 5
 
 train_stream = tasks.streams['train']
 test_stream = tasks.streams['test']
@@ -269,7 +276,6 @@ tasks_matrix_scores = np.full((len(test_stream),
 for ti, (tr_s, te_s) in enumerate(zip(train_stream, test_stream)):
     # model.adaptation(tr_s.dataset)
     model = model_adaptation(model, tr_s.dataset, device)
-
     # classes = tr_s.classes_in_this_experience
     # print(classes)
     # for pit in range(ti):
@@ -302,7 +308,7 @@ for ti, (tr_s, te_s) in enumerate(zip(train_stream, test_stream)):
     )
 
     opt = Adam(parameters, lr=0.001)
-    # opt = SGD(parameters, lr=0.01, momentum=0.7)
+    # opt = SGD(parameters, lr=0.1, momentum=0.9)
 
     backbone.to(device)
 
@@ -360,7 +366,7 @@ for ti, (tr_s, te_s) in enumerate(zip(train_stream, test_stream)):
                     dist += _dist.mean()
 
                 # dist = dist / ti
-                dist = dist * 1
+                dist = dist * 10
 
             # past_sim = 0
             # if ti > 0:
@@ -446,10 +452,10 @@ for ti, (tr_s, te_s) in enumerate(zip(train_stream, test_stream)):
     #     f = LocalOutlierFactor(novelty=True, n_neighbors=50)
     #     f.fit(embeddings)
     #     forests.append(f)
-    #
+
         classes_centroids.extend(train_centroids)
         tasks_centroids.append(train_centroids)
-    #
+
         model.eval()
 
         labels = []

@@ -23,6 +23,7 @@ from avalanche.logging import InteractiveLogger
 from avalanche.training.plugins import EvaluationPlugin
 
 from models.base import get_cl_model
+from models.utils import CustomMultiTaskDecorator
 
 
 class AlexNet(nn.Module):
@@ -125,7 +126,7 @@ def heads_generator(i, o):
                          nn.ReLU(),
                          nn.Linear(i // 2, o))
 
-# model = CustomMultiTaskDecorator(backbone, 'classifier', heads_generator)
+model = CustomMultiTaskDecorator(backbone, 'classifier', heads_generator)
 # model = EmbeddingModelDecorator(model)
 
 parameters = chain(model.parameters())

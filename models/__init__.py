@@ -1,4 +1,4 @@
-from .backbonez.vgg import vgg11
-from .backbonez.resnet import resnet20, resnet32, resnet44, \
+from .backbones.resnet import resnet20, resnet32, resnet44, \
     resnet56, resnet110, resnet1202
-from .backbonez.alexnet import AlexNet
+from .backbones.alexnet import AlexNet
+from .backbones.vgg import custom_vgg
