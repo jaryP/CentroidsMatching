@@ -1,4 +1,3 @@
-epochs: 5
-batch_size: 32
+epochs: 10
+batch_size: 10
 device: 0
-eval_split: 0.1

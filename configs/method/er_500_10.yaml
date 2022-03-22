@@ -1,0 +1,4 @@
+name: er
+mem_size: 500
+save_name: er_500_10
+penalty_weight: 10

@@ -5,7 +5,7 @@ from typing import Sequence, List
 
 import numpy as np
 import torch
-from avalanche.benchmarks import SplitCIFAR10
+from avalanche.benchmarks import SplitCIFAR10, SplitCIFAR100
 from avalanche.models import DynamicModule
 from torch import nn, log_softmax, softmax, cosine_similarity
 from torch.nn import CrossEntropyLoss
@@ -42,14 +42,14 @@ def model_adaptation(model, dataset, device):
 
 
 def calculate_similarity(x, y, similarity='euclidean', sigma=1):
-    # if isinstance(y, list):
-    #     if isinstance(y[0], MultivariateNormal):
-    #         diff = torch.stack([-likelihhod(n, x) for n in y], 1)
-    #         # diff = torch.stack([-n.log_prob(x) ** 10 for n in y], 1)
-    #         return diff
-    #     elif isinstance(y[0], tuple):
-    #         diff = torch.stack([-likelihhod(n, x) for n in y], 1)
-    #         return diff
+    if isinstance(y, list):
+        if isinstance(y[0], MultivariateNormal):
+            diff = torch.stack([-likelihhod(n, x) for n in y], 1)
+            # diff = torch.stack([-n.log_prob(x) ** 10 for n in y], 1)
+            return diff
+        elif isinstance(y[0], tuple):
+            diff = torch.stack([-likelihhod(n, x) for n in y], 1)
+            return diff
 
     n = x.size(0)
     m = y.size(0)
@@ -78,7 +78,6 @@ def calculate_centroids(data: Sequence,
                         model,
                         ti,
                         gaussian: bool = False):
-
     device = next(backbone.parameters()).device
 
     embs = defaultdict(list)
@@ -123,7 +122,8 @@ def calculate_centroids(data: Sequence,
         eye = torch.eye(embs[classes[0]].shape[-1], device=device) * 1e-8
 
         means = torch.stack([torch.mean(embs[c], 0) for c in classes], 0)
-        variances = torch.stack([torch.cov(embs[c].T) + eye for c in classes], 0)
+        variances = torch.stack([torch.cov(embs[c].T) + eye for c in classes],
+                                0)
 
         return means, variances
 
@@ -131,6 +131,7 @@ def calculate_centroids(data: Sequence,
                                    torch.cov(embs[c].T) + eye)
                 for c in classes]
         # return [MultivariateNormal(m, s) for m, s in zip(means, variances)]
+
 
 class AlexNet(nn.Module):
     def __init__(self):
@@ -211,11 +212,11 @@ test_transform = Compose([ToTensor(),
                               (0.2023, 0.1994, 0.2010))
                           ])
 
-tasks = SplitCIFAR10(n_experiences=5,
-                     return_task_id=True,
-                     train_transform=train_transform,
-                     eval_transform=test_transform,
-                     )
+tasks = SplitCIFAR100(n_experiences=10,
+                      return_task_id=True,
+                      # train_transform=None,
+                      # eval_transform=None,
+                      )
 
 # model = as_multitask(backbone, 'classifier')
 
@@ -236,7 +237,6 @@ model = get_cl_model(model_name='alexnet',
                      input_shape=(3, 32, 32),
                      method_name='cml',
                      sit=False)
-
 
 # parameters = chain(model.parameters())
 #
@@ -264,14 +264,13 @@ classes_centroids = []
 tasks_centroids = []
 
 device = 'cuda:0'
-epochs = 5
+epochs = 40
 
 train_stream = tasks.streams['train']
 test_stream = tasks.streams['test']
 
 tasks_matrix_scores = np.full((len(test_stream),
                                len(test_stream)), -1.0)
-
 
 for ti, (tr_s, te_s) in enumerate(zip(train_stream, test_stream)):
     # model.adaptation(tr_s.dataset)
@@ -340,7 +339,6 @@ for ti, (tr_s, te_s) in enumerate(zip(train_stream, test_stream)):
 
             if ti > 0:
                 for i in range(0, ti):
-
                     # past_centroids = calculate_centroids((x, y),
                     #                                 past_backbone,
                     #                                 past_embeddings[i],
@@ -356,17 +354,18 @@ for ti, (tr_s, te_s) in enumerate(zip(train_stream, test_stream)):
                     p_e = past_model.forward_single_task(x, i)
                     c_e = model.forward_single_task(x, i)
 
-                    p_e_n = normalize(p_e)
-                    c_e_n = normalize(c_e)
+                    # p_e = normalize(p_e)
+                    # c_e = normalize(c_e)
 
                     # p_e_n = normalize(past_centroids)
                     # c_e_n = normalize(current_centroids)
 
-                    _dist = torch.norm(p_e_n - c_e_n, p=2, dim=1)
+                    _dist = torch.norm(p_e - c_e, p=2, dim=1)
+                    # print(i, _dist.mean())
                     dist += _dist.mean()
 
                 # dist = dist / ti
-                dist = dist * 10
+                dist = dist * 0.5
 
             # past_sim = 0
             # if ti > 0:
@@ -437,21 +436,21 @@ for ti, (tr_s, te_s) in enumerate(zip(train_stream, test_stream)):
         train_centroids = calculate_centroids(dev_dataloader,
                                               model,
                                               ti)
-    #     embeddings = []
-    #
-    #     for x, y, _ in dev_dataloader:
-    #         batch_embs = embeddings_s[ti](backbone(x.to(device)))
-    #
-    #         dist = - calculate_similarity(batch_embs, train_centroids)
-    #         embeddings.extend(batch_embs.cpu().detach().tolist())
-    #
-    #     embeddings = np.asarray(embeddings)
-    #     print(embeddings.shape)
-    #
-    #     f = IsolationForest()
-    #     f = LocalOutlierFactor(novelty=True, n_neighbors=50)
-    #     f.fit(embeddings)
-    #     forests.append(f)
+        #     embeddings = []
+        #
+        #     for x, y, _ in dev_dataloader:
+        #         batch_embs = embeddings_s[ti](backbone(x.to(device)))
+        #
+        #         dist = - calculate_similarity(batch_embs, train_centroids)
+        #         embeddings.extend(batch_embs.cpu().detach().tolist())
+        #
+        #     embeddings = np.asarray(embeddings)
+        #     print(embeddings.shape)
+        #
+        #     f = IsolationForest()
+        #     f = LocalOutlierFactor(novelty=True, n_neighbors=50)
+        #     f.fit(embeddings)
+        #     forests.append(f)
 
         classes_centroids.extend(train_centroids)
         tasks_centroids.append(train_centroids)
@@ -479,7 +478,6 @@ for ti, (tr_s, te_s) in enumerate(zip(train_stream, test_stream)):
             for bi, (x, y, _) in enumerate(
                     tqdm(test_dataloader, leave=False,
                          total=len(test_dataloader))):
-
                 labels.extend(y.cpu().tolist())
 
                 x, y = x.to(device), y.to(device)

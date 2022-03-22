@@ -10,7 +10,8 @@ from torch.utils.data import Subset, DataLoader
 
 from methods.plugins.cml import ContinualMetricLearningPlugin
 from methods.plugins.er import EmbeddingRegularizationPlugin
-from models.utils import MultiHeadBackbone, EmbeddingModelDecorator
+from models.utils import MultiHeadBackbone, EmbeddingModelDecorator, \
+    CombinedModel
 
 
 class CustomSubset:
@@ -40,7 +41,7 @@ class CustomSubset:
 
 class EmbeddingRegularization(BaseStrategy):
 
-    def __init__(self, model: MultiHeadBackbone,
+    def __init__(self, model: CombinedModel,
                  optimizer: Optimizer, criterion,
                  mem_size: int,
                  penalty_weight: float,
@@ -69,14 +70,15 @@ class EmbeddingRegularization(BaseStrategy):
 
 class ContinualMetricLearning(BaseStrategy):
 
-    def __init__(self, model: MultiHeadBackbone, dev_split_size: float,
+    def __init__(self, model: CombinedModel, dev_split_size: float,
                  optimizer: Optimizer, criterion, penalty_weight: float,
                  train_mb_size: int = 1, train_epochs: int = 1,
                  eval_mb_size: int = None, device=None,
+                 sit: bool = False,
                  plugins: Optional[List[StrategyPlugin]] = None,
                  evaluator: EvaluationPlugin = default_logger, eval_every=-1):
 
-        rp = ContinualMetricLearningPlugin(penalty_weight)
+        rp = ContinualMetricLearningPlugin(penalty_weight, sit)
         self.rp = rp
         if plugins is None:
             plugins = [rp]

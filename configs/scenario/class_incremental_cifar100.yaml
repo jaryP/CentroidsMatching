@@ -1,5 +1,5 @@
 dataset: cifar100
 scenario: splitcifar100
 n_tasks: 10
-return_task_id: false
+return_task_id: true
 shuffle: true

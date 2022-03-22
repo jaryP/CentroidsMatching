@@ -6,19 +6,22 @@ import torch
 from avalanche.benchmarks.utils import AvalancheSubset
 from avalanche.training import BaseStrategy
 from avalanche.training.plugins import StrategyPlugin
+from sklearn.neighbors import LocalOutlierFactor
 from torch import cosine_similarity, log_softmax, softmax
 from torch.nn.functional import normalize
 from torch.utils.data import DataLoader
 
 
 class ContinualMetricLearningPlugin(StrategyPlugin):
-    def __init__(self, penalty_weight: float):
+    def __init__(self, penalty_weight: float, sit = False):
         super().__init__()
 
         self.past_model = None
         self.penalty_weight = penalty_weight
         self.similarity = 'euclidean'
         self.tasks_centroids = {}
+        self.sit = sit
+        self.tasks_forest = {}
 
     def calculate_centroids(self, strategy: BaseStrategy, dataset):
 
@@ -89,11 +92,13 @@ class ContinualMetricLearningPlugin(StrategyPlugin):
 
     def loss(self, strategy, **kwargs):
         if not strategy.model.training:
-            centroids = self.last_centroids
+            # centroids = self.last_centroids¬\
             return 0
         else:
             centroids = self.calculate_centroids(strategy,
                                                  strategy.experience.dev_dataset)
+        # if strategy.experience.current_experience > 0:
+        #     print(torch.isnan(centroids).sum())
 
         mb_output, y = strategy.mb_output, strategy.mb_y
 
@@ -105,29 +110,79 @@ class ContinualMetricLearningPlugin(StrategyPlugin):
 
         return loss_val
 
+    @torch.no_grad()
     def after_training_exp(self, strategy, **kwargs):
-        with torch.no_grad():
-            tid = strategy.experience.current_experience
+        tid = strategy.experience.current_experience
 
-            centroids = self.calculate_centroids(strategy,
-                                                 strategy.experience.dev_dataset)
-            self.last_centroids = centroids
+        centroids = self.calculate_centroids(strategy,
+                                             strategy.experience.
+                                             dev_dataset)
+        self.tasks_centroids[tid] = centroids
 
-            self.tasks_centroids[tid] = centroids
+        self.past_model = deepcopy(strategy.model)
 
-            self.past_model = deepcopy(strategy.model)
+        # for param in strategy.model.classifier.classifiers[str(tid)].parameters():
+        #     param.requires_grad_(False)
 
-            for param in strategy.model.classifier.classifiers[str(tid)].parameters():
-                param.requires_grad_(False)
+        if self.sit:
+            dataloader = DataLoader(strategy.experience.dev_dataset,
+                                    batch_size=strategy.train_mb_size)
+            embeddings = []
+            for x, _, _ in dataloader:
+                x = x.to(strategy.device)
 
+                e = strategy.model.forward_single_task(x, tid, False)
+                embeddings.extend(e.cpu().tolist())
+
+            embeddings = np.asarray(embeddings)
+
+            f = LocalOutlierFactor(novelty=True, n_neighbors=50)
+            f.fit(embeddings)
+
+            self.tasks_forest[tid] = f
+
+    @torch.no_grad()
     def calculate_classes(self, strategy, embeddings):
-        # centroids = self.calculate_centroids(strategy,
-        #                                      strategy.experience.dev_dataset)
-        centroids = self.tasks_centroids[strategy.experience.current_experience]
-        sim = self.calculate_similarity(embeddings,
-                                        centroids)
-        sm = softmax(sim, -1)
-        pred = torch.argmax(sm, 1)
+
+        correct_task = strategy.experience.current_experience
+        if False and self.sit and len(self.tasks_centroids) > 1:
+
+            correct_embs = None
+            predictions = []
+            od = []
+
+            for ti, forest in self.tasks_forest.items():
+                e = strategy.model.forward_single_task(strategy.mb_x, ti, False)
+
+                if ti == correct_task:
+                    correct_embs = e
+
+                e = e.cpu().numpy()
+
+                forest_prediction = forest.score_samples(e)
+                od.append(forest.predict(e))
+                predictions.append(forest_prediction)
+
+            predicted_tasks = np.argmax(predictions, 0)
+
+            correct_prediction_mask = predicted_tasks == correct_task
+            correct_prediction_mask = torch.tensor(correct_prediction_mask,
+                                                   device=strategy.device,
+                                                   dtype=torch.long)
+
+            centroids = self.tasks_centroids[correct_task]
+            sim = self.calculate_similarity(correct_embs, centroids)
+            sm = softmax(sim, -1)
+            sm = torch.argmax(sm, 1)
+
+            pred = correct_prediction_mask * sm + (1 - correct_prediction_mask) * -1
+
+        else:
+
+            centroids = self.tasks_centroids[correct_task]
+            sim = self.calculate_similarity(embeddings, centroids)
+            sm = softmax(sim, -1)
+            pred = torch.argmax(sm, 1)
         return pred
 
     # @torch.no_grad()
@@ -173,25 +228,41 @@ class ContinualMetricLearningPlugin(StrategyPlugin):
 
     def before_backward(self, strategy, **kwargs):
         if strategy.clock.train_exp_counter > 0:
-            x, _, _ = strategy.mbatch
+            x, _, tdi = strategy.mbatch
             dist = 0
 
             for i in range(len(self.tasks_centroids)):
                 p_e = self.past_model.forward_single_task(x, i)
                 c_e = strategy.model.forward_single_task(x, i)
 
-                p_e_n = normalize(p_e)
-                c_e_n = normalize(c_e)
+                if False:
+                    p_e = normalize(p_e)
+                    c_e = normalize(c_e)
 
-                # p_e_n = normalize(past_centroids)
-                # c_e_n = normalize(current_centroids)
-
-                _dist = torch.norm(p_e_n - c_e_n, p=2, dim=1)
+                _dist = torch.norm(p_e - c_e, p=2, dim=1)
                 dist += _dist.mean()
 
             dist = dist * self.penalty_weight
 
             strategy.loss += dist
+
+            # tdi = strategy.experience.current_experience
+            # if self.sit:
+            #     tot_sim = 0
+            #     p_e = strategy.model.forward_single_task(x, tdi)
+            #
+            #     for i in range(tdi):
+            #         # for j in range(i + 1, len(self.tasks_centroids)):
+            #         #     p_e = strategy.model.forward_single_task(x, i)
+            #         c_e = strategy.model.forward_single_task(x, i)
+            #
+            #         _dist = torch.norm(p_e - c_e, p=2, dim=1)
+            #         sim = 1 / (1 + _dist)
+            #
+            #         tot_sim += sim.mean()
+            #
+            #     strategy.loss += tot_sim * self.penalty_weight
+
 
     #         total_dis = 0
     #         device = strategy.device
