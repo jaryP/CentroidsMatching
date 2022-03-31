@@ -7,7 +7,7 @@ case $METHOD in
 gem)
 #  python main.py +scenario=class_incremental_cifar10 +model=alexnet +training=cifar10 +method=gem_200 optimizer=sgd  training.device="$DEVICE" hydra.run.dir='./results/ci_cifar10/alexnet/gem/gem_200'
 #  python main.py +scenario=class_incremental_cifar10 +model=alexnet +training=cifar10 +method=gem_500 optimizer=sgd  training.device="$DEVICE" hydra.run.dir='./results/ci_cifar10/alexnet/gem/gem_500'
-#  python main.py +scenario=class_incremental_cifar10 +model=alexnet +training=cifar10 +method=gem_1000 optimizer=sgd  training.device="$DEVICE" hydra.run.dir='./results/ci_cifar10/alexnet/gem/gem_1000'
+  python main.py +scenario=class_incremental_cifar10 +model=alexnet +training=cifar10 +method=gem_1000 optimizer=sgd  training.device="$DEVICE" hydra.run.dir='./results/ci_cifar10/alexnet/gem/gem_1000'
 ;;
 ewc)
 #  python main.py +scenario=class_incremental_cifar10 +model=alexnet +training=cifar10 +method=ewc_1 optimizer=sgd  training.device="$DEVICE" hydra.run.dir='./results/ci_cifar10/alexnet/ewc/ewc_1'

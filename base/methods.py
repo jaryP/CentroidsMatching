@@ -77,7 +77,9 @@ def get_trainer(name, sit: bool = False, **kwargs):
                                            optimizer=optimizer,
                                            train_epochs=train_epochs,
                                            train_mb_size=train_mb_size,
-                                           evaluator=evaluator, device=device)
+                                           evaluator=evaluator, device=device,
+                                           feature_extractor=model.backbone,
+                                           classifier=model.classifier)
         elif name == 'cml':
             return ContinualMetricLearning(model=model,
                                            dev_split_size=kwargs.

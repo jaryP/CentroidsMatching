@@ -1,17 +1,17 @@
 from typing import Optional, List
 
 import numpy as np
-from avalanche.benchmarks.utils.data_loader import TaskBalancedDataLoader
 from avalanche.training import BaseStrategy
 from avalanche.training.plugins import StrategyPlugin, EvaluationPlugin
 from avalanche.training.plugins.evaluation import default_logger
+from torch import nn
+from torch.nn.modules.batchnorm import _BatchNorm
 from torch.optim import Optimizer
-from torch.utils.data import Subset, DataLoader
+from torch.utils.data import DataLoader
 
-from methods.plugins.cml import ContinualMetricLearningPlugin
+from methods.plugins.cml import ContinualMetricLearningPlugin, WrappedModel
 from methods.plugins.er import EmbeddingRegularizationPlugin
-from models.utils import MultiHeadBackbone, EmbeddingModelDecorator, \
-    CombinedModel
+from models.utils import CombinedModel
 
 
 class CustomSubset:
@@ -41,7 +41,10 @@ class CustomSubset:
 
 class EmbeddingRegularization(BaseStrategy):
 
-    def __init__(self, model: CombinedModel,
+    def __init__(self,
+                 feature_extractor: nn.Module,
+                 classifier: nn.Module,
+                 model: CombinedModel,
                  optimizer: Optimizer, criterion,
                  mem_size: int,
                  penalty_weight: float,
@@ -52,6 +55,8 @@ class EmbeddingRegularization(BaseStrategy):
                  plugins: Optional[List[StrategyPlugin]] = None,
                  evaluator: EvaluationPlugin = default_logger,
                  eval_every=-1):
+
+        model = CombinedModel(feature_extractor, classifier)
 
         rp = EmbeddingRegularizationPlugin(mem_size, penalty_weight)
         if plugins is None:
@@ -80,6 +85,7 @@ class ContinualMetricLearning(BaseStrategy):
 
         rp = ContinualMetricLearningPlugin(penalty_weight, sit)
         self.rp = rp
+
         if plugins is None:
             plugins = [rp]
         else:
@@ -88,6 +94,11 @@ class ContinualMetricLearning(BaseStrategy):
         self.dev_split_size = dev_split_size
         self.dev_dataloader = None
         self.dev_indexes = dict()
+
+        for name, module in model.named_modules():
+            if isinstance(module, _BatchNorm):
+                model = WrappedModel(model)
+                break
 
         super().__init__(
             model, optimizer, criterion,
@@ -100,8 +111,8 @@ class ContinualMetricLearning(BaseStrategy):
     # def eval_dataset_adaptation(self, **kwargs):
     #     """ Initialize `self.adapted_dataset`. """
     #     self.train_dataset_adaptation()
-        # self.adapted_dataset = self.experience.dataset
-        # self.adapted_dataset = self.adapted_dataset.eval()
+    # self.adapted_dataset = self.experience.dataset
+    # self.adapted_dataset = self.adapted_dataset.eval()
 
     def train_dataset_adaptation(self, **kwargs):
         """ Initialize `self.adapted_dataset`. """
@@ -109,7 +120,6 @@ class ContinualMetricLearning(BaseStrategy):
         exp_n = self.experience.current_experience
 
         if not hasattr(self.experience, 'dev-dataset'):
-
             dataset = self.experience.dataset
             idx = np.arange(len(dataset))
             np.random.shuffle(idx)
@@ -199,3 +209,112 @@ class ContinualMetricLearning(BaseStrategy):
             batch_size=self.train_mb_size,
             shuffle=shuffle,
             pin_memory=pin_memory)
+
+
+# class BatchNormModelWrapper(MultiTaskModule):
+#     def __init__(self, model: nn.Module):
+#         super().__init__()
+#
+#         self.model = model
+#         self.task_bn = nn.ModuleDict()
+#         self.current_task = None
+#
+#         # current_bn = nn.ModuleDict()
+#         #
+#         # for name, module in model.named_modules():
+#         #     if isinstance(module, _BatchNorm):
+#         #         name = name.replace('.', '_')
+#         #         current_bn[name] = module
+#         #
+#         # self.task_bn['0'] = current_bn
+#
+#     def adaptation(self, dataset: AvalancheDataset = None):
+#         # def sequential():
+#         #     for i, l in enumerate(s):
+#         #         if isinstance(l, BatchNorm2d):
+#         #             if skip_last and i == len(s) - 1:
+#         #                 continue
+#         #             s[i] = wrapper_fn(l)
+#         #
+#         #         elif isinstance(l, BasicBlock):
+#         #             s[i] = ResNetBlockWrapper(l, wrapper_fn)
+#
+#         def get_children(model: torch.nn.Module):
+#             # get children form model!
+#             children = list(model.named_children())
+#             flatt_children = []
+#             if children == []:
+#                 # if model has no children; model is last child! :O
+#                 return model
+#             else:
+#                 # look for children from children... to the last child!
+#                 for anme, child in children:
+#                     try:
+#                         flatt_children.extend(get_children(child))
+#                     except TypeError:
+#                         flatt_children.append(get_children(child))
+#             return flatt_children
+#
+#         if self.training:
+#             current_bn = nn.ModuleDict()
+#             # a = get_children(self.model)
+#
+#             for name, module in dict(self.model.named_children()).items():
+#                 if isinstance(module, BatchNorm2d):
+#                     nbn = BatchNorm2d(module.num_features)
+#                     setattr(self.model, name, nbn)
+#
+#                     name = name.replace('.', '_')
+#                     current_bn[name] = nbn
+#
+#             self.task_bn[str(len(self.task_bn))] = current_bn
+#
+#         # for name, module in dict(self.model.named_modules()).items():
+#         #     if isinstance(module, _BatchNorm):
+#         #         name = name.replace('.', '_')
+#         #         # self.task_bn[i] = deepcopy(module)
+#         #         setattr(self.model, name, bns[name])
+#
+#     def forward_single_task(self, x: torch.Tensor, task_label: int,
+#                             return_embeddings: bool = False):
+#
+#         if self.current_task is None or task_label != self.current_task:
+#             bns = self.task_bn[str(task_label)]
+#
+#             self.current_task = task_label
+#
+#             for name, module in dict(self.model.named_modules()).items():
+#                 if isinstance(module, _BatchNorm):
+#                     name = name.replace('.', '_')
+#                     # self.task_bn[i] = deepcopy(module)
+#                     setattr(self.model, name, bns[name])
+#
+#         return self.model(x=x, task_labels=task_label)
+#
+#     def forward(self, x, task_labels, **kwargs):
+#
+#         if isinstance(task_labels, int):
+#             # fast path. mini-batch is single task.
+#             return self.forward_single_task(x, task_labels)
+#         else:
+#             unique_tasks = torch.unique(task_labels)
+#             if len(unique_tasks) == 1:
+#                 unique_tasks = unique_tasks.item()
+#                 return self.forward_single_task(x, unique_tasks)
+#
+#         assert False
+#         # bns = self.task_bn[str(task_labels)]
+#         #
+#         # if self.current_task is None or task_labels != self.current_task:
+#         #     self.current_task = task_labels
+#         # # else:
+#         # #     if task_label != self.current_task:
+#         # #         self.current_task = task_label
+#         # #
+#         #     for name, module in self.model.named_modules():
+#         #         if isinstance(module, _BatchNorm):
+#         #             name = name.replace('_', '.')
+#         #             # self.task_bn[i] = deepcopy(module)
+#         #             setattr(self.model, name, bns[name])
+#         #
+#         # return self.model(x=x, task_labels=task_labels)

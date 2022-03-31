@@ -135,8 +135,8 @@ def avalanche_training(cfg: DictConfig):
                 bwt_metrics(experience=True, stream=True),
                 loggers=[
                     # TextLogger(output_file),
-                    TextLogger(),
-                    # InteractiveLogger()
+                    # TextLogger(),
+                    InteractiveLogger()
                 ],
                 # benchmark=tasks,
                 # strict_checks=True

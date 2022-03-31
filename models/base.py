@@ -6,6 +6,7 @@ import torchvision
 from avalanche.models import MultiHeadClassifier, IncrementalClassifier
 from torch import nn
 from torchvision.models import vgg11
+import torch.nn.functional as F
 
 from models import resnet20, resnet32, custom_vgg
 from models.utils import CombinedModel, CustomMultiHeadClassifier
@@ -17,6 +18,7 @@ def get_backbone(name: str, channels: int = 3):
     if 'vgg' in name:
 
         model = getattr(torchvision.models, name, None)
+
         if model is None:
             model = custom_vgg(name)
         else:
@@ -54,11 +56,30 @@ def get_backbone(name: str, channels: int = 3):
             nn.AdaptiveAvgPool2d(1),
             # nn.Dropout2d(0.25),
         )
+
     elif 'resnet' in name:
         if name == 'resnet20':
-            return resnet20()
+            model = resnet20()
         elif name == 'resnet32':
-            return resnet32()
+            model = resnet32()
+        else:
+            assert False
+
+        class CustomResNet(nn.Module):
+            def __init__(self, m):
+                super().__init__()
+                self.model = m
+
+            def forward(self, x):
+                out = F.relu(self.model.bn1(self.model.conv1(x)))
+                out = self.model.layer1(out)
+                out = self.model.layer2(out)
+                out = self.model.layer3(out)
+                out = F.avg_pool2d(out, out.size()[3])
+                out = out.view(out.size(0), -1)
+                return out
+
+        return CustomResNet(model)
 
     assert False, f'Inserted model name not valid {name}'
 
@@ -67,7 +88,7 @@ def get_cl_model(model_name: str,
                  method_name: str,
                  input_shape: Tuple[int, int, int],
                  sit: bool = False,
-                 cml_out_features: int = 256):
+                 cml_out_features: int = None):
 
     backbone = get_backbone(model_name, channels=input_shape[0])
     x = torch.randn((1,) + input_shape)
@@ -89,7 +110,10 @@ def get_cl_model(model_name: str,
             classifier = MultiHeadClassifier(size)
     else:
         if cml_out_features is None:
-            cml_out_features = size
+            if size > 128:
+                cml_out_features = 128
+            else:
+                cml_out_features = size
 
         classifier = CustomMultiHeadClassifier(size, heads_generator,
                                                cml_out_features)

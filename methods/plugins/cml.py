@@ -3,17 +3,130 @@ from copy import deepcopy
 
 import numpy as np
 import torch
-from avalanche.benchmarks.utils import AvalancheSubset
+from avalanche.benchmarks.utils import AvalancheDataset
+from avalanche.models import MultiTaskModule
 from avalanche.training import BaseStrategy
 from avalanche.training.plugins import StrategyPlugin
 from sklearn.neighbors import LocalOutlierFactor
-from torch import cosine_similarity, log_softmax, softmax
+from torch import cosine_similarity, log_softmax, softmax, nn
+from torch.nn import BatchNorm2d
 from torch.nn.functional import normalize
 from torch.utils.data import DataLoader
 
 
+def wrap_model(model: nn.Module):
+    for name, module in model.named_children():
+        if isinstance(module, BatchNorm2d):
+            setattr(model, name, CLBatchNorm2D(module))
+        else:
+            wrap_model(module)
+
+
+class CLBatchNorm2D(MultiTaskModule):
+    def __init__(self,
+                 bn: BatchNorm2d,
+                 device=None):
+
+        super().__init__()
+
+        self.num_features = bn.num_features
+        self.eps = bn.eps
+        self.momentum = bn.momentum
+        self.affine = bn.affine
+        self.track_running_stats = bn.track_running_stats
+        self.device = device
+
+        self.bns = nn.ModuleDict()
+        self.freeze_bn = {}
+
+        self.current_task = None
+
+    def train_adaptation(self, dataset: AvalancheDataset = None):
+
+        cbn = len(self.bns)
+        nbn = BatchNorm2d(self.num_features,
+                          momentum=self.momentum,
+                          affine=self.affine,
+                          device=self.device,
+                          track_running_stats=self.track_running_stats,
+                          eps=self.eps)
+
+        self.bns[str(cbn)] = nbn
+
+    def set_task(self, t):
+        self.current_task = t
+
+    def freeze_eval(self, t):
+        self.freeze_bn[str(t)] = True
+        self.bns[str(t)].eval()
+
+    def train(self, mode: bool = True):
+        if not isinstance(mode, bool):
+            raise ValueError("training mode is expected to be boolean")
+        self.training = mode
+
+        for k, v in self.bns.items():
+            if not self.freeze_bn.get(k, False):
+                v.train(mode)
+
+        return self
+
+    def eval(self):
+        self.training = False
+        for module in self.children():
+            module.train(False)
+        return self
+
+    def forward_single_task(self, x: torch.Tensor,
+                            task_label: int) -> torch.Tensor:
+
+        return self.bns[str(task_label)](x)
+
+    def forward(self, x, **kwargs):
+
+        task_labels = self.current_task
+
+        if isinstance(task_labels, int):
+            # fast path. mini-batch is single task.
+            return self.forward_single_task(x, task_labels)
+        else:
+            unique_tasks = torch.unique(task_labels)
+            if len(unique_tasks) == 1:
+                unique_tasks = unique_tasks.item()
+                return self.forward_single_task(x, unique_tasks)
+
+        assert False
+
+
+class WrappedModel(MultiTaskModule):
+    def forward_single_task(self, x: torch.Tensor,
+                            task_label: int, **kwargs) -> torch.Tensor:
+
+        return self.model.forward_single_task(x, task_label)
+
+    def __init__(self, model: nn.Module):
+        super().__init__()
+
+        self.model = model
+        wrap_model(self.model)
+
+    def forward(self, x, task_labels, **kwargs):
+        if not isinstance(task_labels, int):
+            task_labels = torch.unique(task_labels)
+            if len(task_labels) == 1:
+                task_labels = task_labels.item()
+            else:
+                assert False
+
+        for module in self.model.modules():
+            if isinstance(module, CLBatchNorm2D):
+                module.set_task(task_labels)
+
+        return self.model(x, task_labels)
+
+
 class ContinualMetricLearningPlugin(StrategyPlugin):
-    def __init__(self, penalty_weight: float, sit = False):
+    def __init__(self, penalty_weight: float, sit=False):
         super().__init__()
 
         self.past_model = None
@@ -23,7 +136,8 @@ class ContinualMetricLearningPlugin(StrategyPlugin):
         self.sit = sit
         self.tasks_forest = {}
 
-    def calculate_centroids(self, strategy: BaseStrategy, dataset):
+    @staticmethod
+    def calculate_centroids(strategy: BaseStrategy, dataset):
 
         # model = strategy.model
         device = strategy.device
@@ -46,7 +160,8 @@ class ContinualMetricLearningPlugin(StrategyPlugin):
         for d in dataloader:
             x, y, tid = d
             x = x.to(device)
-            embeddings = strategy.model.forward_single_task(x, tid, False)
+            # embeddings = strategy.model.forward_single_task(x, tid, False)
+            embeddings = strategy.model(x, tid)
             for c in classes:
                 embs[c].append(embeddings[y == c])
 
@@ -117,9 +232,16 @@ class ContinualMetricLearningPlugin(StrategyPlugin):
         centroids = self.calculate_centroids(strategy,
                                              strategy.experience.
                                              dev_dataset)
+
         self.tasks_centroids[tid] = centroids
 
         self.past_model = deepcopy(strategy.model)
+        self.past_model.eval()
+
+        if isinstance(strategy.model, WrappedModel):
+            for name, module in strategy.model.named_modules():
+                if isinstance(module, CLBatchNorm2D):
+                    module.freeze_eval(tid)
 
         # for param in strategy.model.classifier.classifiers[str(tid)].parameters():
         #     param.requires_grad_(False)
@@ -131,7 +253,9 @@ class ContinualMetricLearningPlugin(StrategyPlugin):
             for x, _, _ in dataloader:
                 x = x.to(strategy.device)
 
-                e = strategy.model.forward_single_task(x, tid, False)
+                # e = strategy.model.forward_single_task(x, tid, False)
+                e = strategy.model(x, tid)
+
                 embeddings.extend(e.cpu().tolist())
 
             embeddings = np.asarray(embeddings)
@@ -152,7 +276,7 @@ class ContinualMetricLearningPlugin(StrategyPlugin):
             od = []
 
             for ti, forest in self.tasks_forest.items():
-                e = strategy.model.forward_single_task(strategy.mb_x, ti, False)
+                e = strategy.model.forward(strategy.mb_x, ti, False)
 
                 if ti == correct_task:
                     correct_embs = e
@@ -175,7 +299,8 @@ class ContinualMetricLearningPlugin(StrategyPlugin):
             sm = softmax(sim, -1)
             sm = torch.argmax(sm, 1)
 
-            pred = correct_prediction_mask * sm + (1 - correct_prediction_mask) * -1
+            pred = correct_prediction_mask * sm + (
+                    1 - correct_prediction_mask) * -1
 
         else:
 
@@ -185,55 +310,20 @@ class ContinualMetricLearningPlugin(StrategyPlugin):
             pred = torch.argmax(sm, 1)
         return pred
 
-    # @torch.no_grad()
-    # def update_memory(self, strategy, dataset, t, batch_size):
-    #     dataloader = DataLoader(dataset.eval(), batch_size=batch_size)
-    #     tot = 0
-    #     device = strategy.device
-    #
-    #     for mbatch in dataloader:
-    #         x, y, tid = mbatch[0].to(device), mbatch[1], mbatch[-1].to(device)
-    #         emb, _ = strategy.model.forward_single_task(x, t, True)
-    #
-    #         emb = emb.detach().clone()
-    #         x = x.detach().clone()
-    #         tid = tid.detach().clone()
-    #
-    #         if tot + x.size(0) <= self.patterns_per_experience:
-    #             if t not in self.memory_x:
-    #                 self.memory_x[t] = x
-    #                 self.memory_y[t] = emb
-    #                 self.memory_tid[t] = tid.clone()
-    #             else:
-    #                 self.memory_x[t] = torch.cat((self.memory_x[t], x), dim=0)
-    #                 self.memory_y[t] = torch.cat((self.memory_y[t], emb), dim=0)
-    #                 self.memory_tid[t] = torch.cat((self.memory_tid[t], tid),
-    #                                                dim=0)
-    #
-    #         else:
-    #             diff = self.patterns_per_experience - tot
-    #             if t not in self.memory_x:
-    #                 self.memory_x[t] = x[:diff]
-    #                 self.memory_y[t] = emb[:diff]
-    #                 self.memory_tid[t] = tid[:diff]
-    #             else:
-    #                 self.memory_x[t] = torch.cat((self.memory_x[t], x[:diff]),
-    #                                              dim=0)
-    #                 self.memory_y[t] = torch.cat((self.memory_y[t], emb[:diff]),
-    #                                              dim=0)
-    #                 self.memory_tid[t] = torch.cat((self.memory_tid[t],
-    #                                                 tid[:diff]), dim=0)
-    #             break
-    #         tot += x.size(0)
-
     def before_backward(self, strategy, **kwargs):
         if strategy.clock.train_exp_counter > 0:
+
+            # strategy.model.eval()
+
+            # a = strategy.model.model.backbone.model.bn1.bns['0'].weight
+            # b = self.past_model.model.backbone.model.bn1.bns['0'].weight
+
             x, _, tdi = strategy.mbatch
             dist = 0
 
             for i in range(len(self.tasks_centroids)):
-                p_e = self.past_model.forward_single_task(x, i)
-                c_e = strategy.model.forward_single_task(x, i)
+                p_e = self.past_model.forward(x, i)
+                c_e = strategy.model.forward(x, i)
 
                 if False:
                     p_e = normalize(p_e)
@@ -245,6 +335,8 @@ class ContinualMetricLearningPlugin(StrategyPlugin):
             dist = dist * self.penalty_weight
 
             strategy.loss += dist
+
+            # strategy.model.train()
 
             # tdi = strategy.experience.current_experience
             # if self.sit:
@@ -262,7 +354,6 @@ class ContinualMetricLearningPlugin(StrategyPlugin):
             #         tot_sim += sim.mean()
             #
             #     strategy.loss += tot_sim * self.penalty_weight
-
 
     #         total_dis = 0
     #         device = strategy.device
@@ -287,19 +378,3 @@ class ContinualMetricLearningPlugin(StrategyPlugin):
     #
     #         total_dis = total_dis / strategy.clock.train_exp_counter
     #         strategy.loss += total_dis * self.penalty_weight
-
-    # def before_train_dataset_adaptation(self, strategy, **kwargs):
-    #     dataset = strategy.experience.dataset
-    #
-    #     idx = np.arange(len(dataset))
-    #     np.random.shuffle(idx)
-    #     dev_i = int(len(idx) * 0.1)
-    #
-    #     dev_idx = idx[:dev_i]
-    #     train_idx = idx[dev_i:]
-    #
-    #     dev = AvalancheSubset(dataset._original_dataset.eval(), dev_idx)
-    #     train = AvalancheSubset(dataset._original_dataset, train_idx)
-    #
-    #     strategy.experience.dataset = train
-    #     strategy.experience.dev_dataset = dev
