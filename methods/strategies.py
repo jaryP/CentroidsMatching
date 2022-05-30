@@ -9,8 +9,11 @@ from torch.nn.modules.batchnorm import _BatchNorm
 from torch.optim import Optimizer
 from torch.utils.data import DataLoader
 
-from methods.plugins.cml import ContinualMetricLearningPlugin, WrappedModel
+from methods.plugins.cml import ContinualMetricLearningPlugin, \
+    BatchNormModelWrap, DropContinualMetricLearningPlugin, \
+    ClassIncrementalBatchNormModelWrap
 from methods.plugins.er import EmbeddingRegularizationPlugin
+from methods.plugins.hal import AnchorLearningPlugin
 from models.utils import CombinedModel
 
 
@@ -56,6 +59,11 @@ class EmbeddingRegularization(BaseStrategy):
                  evaluator: EvaluationPlugin = default_logger,
                  eval_every=-1):
 
+        for name, module in feature_extractor.named_modules():
+            if isinstance(module, _BatchNorm):
+                feature_extractor = BatchNormModelWrap(feature_extractor)
+                break
+
         model = CombinedModel(feature_extractor, classifier)
 
         rp = EmbeddingRegularizationPlugin(mem_size, penalty_weight)
@@ -79,11 +87,41 @@ class ContinualMetricLearning(BaseStrategy):
                  optimizer: Optimizer, criterion, penalty_weight: float,
                  train_mb_size: int = 1, train_epochs: int = 1,
                  eval_mb_size: int = None, device=None,
-                 sit: bool = False,
+                 sit: bool = False, num_experiences: int = 20,
+                 sit_memory_size: int = 200,
                  plugins: Optional[List[StrategyPlugin]] = None,
                  evaluator: EvaluationPlugin = default_logger, eval_every=-1):
 
-        rp = ContinualMetricLearningPlugin(penalty_weight, sit)
+        # if sit:
+        #     rp = ClassIncrementalContinualMetricLearningPlugin(penalty_weight, sit)
+        # else:
+
+        # if any(isinstance(module, _BatchNorm) for module in
+        #        model.modules()) and not sit:
+        #     # for name, module in model.named_modules():
+        #     #     if isinstance(module, _BatchNorm):
+        #     model = BatchNormModelWrap(model)
+        #     # break
+
+        if any(isinstance(module, _BatchNorm) for module in
+               model.modules()):
+            # for name, module in model.named_modules():
+            #     if isinstance(module, _BatchNorm):
+            if sit:
+                pass
+                # model = ClassIncrementalBatchNormModelWrap(model)
+            else:
+                model = BatchNormModelWrap(model)
+            # break
+
+        # rp = ContinualMetricLearningPlugin(penalty_weight, sit,
+        #                                    num_experiences=num_experiences,
+        #                                    sit_memory_size=sit_memory_size)
+
+        rp = DropContinualMetricLearningPlugin(penalty_weight, sit,
+                                               num_experiences=num_experiences,
+                                               sit_memory_size=sit_memory_size)
+
         self.rp = rp
 
         if plugins is None:
@@ -94,11 +132,6 @@ class ContinualMetricLearning(BaseStrategy):
         self.dev_split_size = dev_split_size
         self.dev_dataloader = None
         self.dev_indexes = dict()
-
-        for name, module in model.named_modules():
-            if isinstance(module, _BatchNorm):
-                model = WrappedModel(model)
-                break
 
         super().__init__(
             model, optimizer, criterion,
@@ -119,11 +152,15 @@ class ContinualMetricLearning(BaseStrategy):
 
         exp_n = self.experience.current_experience
 
-        if not hasattr(self.experience, 'dev-dataset'):
+        if not hasattr(self.experience, 'dev_dataset'):
             dataset = self.experience.dataset
             idx = np.arange(len(dataset))
             np.random.shuffle(idx)
-            dev_i = int(len(idx) * self.dev_split_size)
+
+            if isinstance(self.dev_split_size, int):
+                dev_i = self.dev_split_size
+            else:
+                dev_i = int(len(idx) * self.dev_split_size)
 
             dev_idx = idx[:dev_i]
             train_idx = idx[dev_i:]
@@ -210,6 +247,82 @@ class ContinualMetricLearning(BaseStrategy):
             shuffle=shuffle,
             pin_memory=pin_memory)
 
+
+class AnchorLearning(BaseStrategy):
+    def __init__(self,
+                 feature_extractor: nn.Module,
+                 classifier: nn.Module,
+                 optimizer: Optimizer, criterion,
+                 ring_size: int,
+                 lamb: float,
+                 beta: float,
+                 alpha: float,
+                 embedding_strength: float,
+                 k: int = 100,
+                 train_mb_size: int = 1, train_epochs: int = 1,
+                 eval_mb_size: int = None, device=None,
+                 plugins: Optional[List[StrategyPlugin]] = None,
+                 evaluator: EvaluationPlugin = default_logger, eval_every=-1,
+                 **kwargs):
+
+        model = CombinedModel(feature_extractor,
+                              classifier=classifier)
+
+        rp = AnchorLearningPlugin(ring_size=ring_size,
+                                  regularization=lamb,
+                                  decay_rate=beta,
+                                  lr=alpha,
+                                  embedding_strength=embedding_strength,
+                                  k=k)
+        self.rp = rp
+
+        if plugins is None:
+            plugins = [rp]
+        else:
+            plugins.append(rp)
+
+        super().__init__(
+            model, optimizer, criterion,
+            train_mb_size=train_mb_size,
+            train_epochs=train_epochs,
+            eval_mb_size=eval_mb_size, device=device,
+            plugins=plugins,
+            evaluator=evaluator, eval_every=eval_every)
+
+    # def training_epoch(self, **kwargs):
+    #     """ Training epoch.
+    #
+    #     :param kwargs:
+    #     :return:
+    #     """
+    #     for self.mbatch in self.dataloader:
+    #         if self._stop_training:
+    #             break
+    #
+    #         self._unpack_minibatch()
+    #         self._before_training_iteration(**kwargs)
+    #
+    #         self.optimizer.zero_grad()
+    #         self.loss = 0
+    #
+    #         # Forward
+    #         self._before_forward(**kwargs)
+    #         self.mb_output = self.forward()
+    #         self._after_forward(**kwargs)
+    #
+    #         # Loss & Backward
+    #         self.loss += self.criterion()
+    #
+    #         self._before_backward(**kwargs)
+    #         self.loss.backward(retain_graph=False)
+    #         self._after_backward(**kwargs)
+    #
+    #         # Optimization step
+    #         self._before_update(**kwargs)
+    #         self.optimizer.step()
+    #         self._after_update(**kwargs)
+    #
+    #         self._after_training_iteration(**kwargs)
 
 # class BatchNormModelWrapper(MultiTaskModule):
 #     def __init__(self, model: nn.Module):

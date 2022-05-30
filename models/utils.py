@@ -6,11 +6,15 @@ from avalanche.benchmarks.utils.dataset_utils import ConstantSequence
 from avalanche.models import DynamicModule, MultiTaskModule
 from avalanche.models.helper_method import MultiTaskDecorator
 from torch import nn
-from torch.nn import Parameter
+from torch.nn import Parameter, Dropout
+
+from methods.plugins.cml import UncDropout
 
 
 class CustomMultiHeadClassifier(MultiTaskModule):
-    def __init__(self, in_features, heads_generator, out_features=None):
+    def __init__(self, in_features, heads_generator, out_features=None,
+                 p=None):
+
         super().__init__()
 
         self.heads_generator = heads_generator
@@ -43,8 +47,8 @@ class CustomMultiHeadClassifier(MultiTaskModule):
                 new_head = self.heads_generator(self.in_features, out)
                 self.classifiers[tid] = new_head
 
-    def forward_single_task(self, x, task_label):
-        return self.classifiers[str(task_label)](x)
+    def forward_single_task(self, x, task_label, **kwargs):
+        return self.classifiers[str(task_label)](x, **kwargs)
 
 
 class CustomMultiTaskDecorator(MultiTaskModule):
@@ -295,16 +299,38 @@ class EmbeddingModelDecorator(MultiTaskModule):
 
 
 class CombinedModel(MultiTaskModule):
-    def __init__(self, backbone: nn.Module, classifier: nn.Module):
+    def __init__(self, backbone: nn.Module, classifier: nn.Module, p=None):
         super().__init__()
-        self.backbone = backbone
+        self.feature_extractor = backbone
         self.classifier = classifier
 
+        # self.dropout = lambda x: x
+        # if p is not None:
+        #     self.dropout = Dropout(p)
+
     def forward_single_task(self, x: torch.Tensor, task_label: int,
-                            return_embeddings: bool = False):
-        out = self.backbone(x)
+                            return_embeddings: bool = False,
+                            t=None):
+
+        out = self.feature_extractor(x, task_label)
         out = torch.flatten(out, 1)
-        logits = self.classifier(out, task_labels=task_label)
+
+        # out = self.dropout(out)
+
+        if isinstance(self.classifier, CustomMultiHeadClassifier) and \
+                isinstance(self.classifier.classifiers['0'], DropoutWrapper) \
+                and t is not None:
+
+            for k, c in self.classifier.classifiers.items():
+                c.set_t(t)
+
+            logits = self.classifier(out, task_labels=task_label)
+
+            for k, c in self.classifier.classifiers.items():
+                c.set_t(None)
+
+        else:
+            logits = self.classifier(out, task_labels=task_label)
 
         if return_embeddings:
             return out, logits
@@ -312,44 +338,50 @@ class CombinedModel(MultiTaskModule):
         return logits
 
     def forward_all_tasks(self, x: torch.Tensor,
-                          return_embeddings: bool = False):
+                          return_embeddings: bool = False,
+                          **kwargs):
 
         res = {}
         for task_id in self.known_train_tasks_labels:
             res[task_id] = self.forward_single_task(x,
                                                     task_id,
-                                                    return_embeddings)
+                                                    return_embeddings,
+                                                    **kwargs)
         return res
 
     def forward(self, x: torch.Tensor, task_labels: torch.Tensor,
-                return_embeddings: bool = False) \
+                return_embeddings: bool = False,
+                **kwargs) \
             -> torch.Tensor:
 
         if task_labels is None:
             return self.forward_all_tasks(x,
-                                          return_embeddings=return_embeddings)
+                                          return_embeddings=return_embeddings,
+                                          **kwargs)
 
         if isinstance(task_labels, int):
             # fast path. mini-batch is single task.
-            return self.forward_single_task(x, task_labels, return_embeddings)
+            return self.forward_single_task(x, task_labels, return_embeddings,
+                                            **kwargs)
         else:
             unique_tasks = torch.unique(task_labels)
             if len(unique_tasks) == 1:
                 return self.forward_single_task(x, unique_tasks.item(),
-                                                return_embeddings)
+                                                return_embeddings, **kwargs)
 
         out = None
         for task in unique_tasks:
             task_mask = task_labels == task
             x_task = x[task_mask]
             out_task = self.forward_single_task(x_task, task.item(),
-                                                return_embeddings)
+                                                return_embeddings, **kwargs)
 
             if out is None:
                 out = torch.empty(x.shape[0], *out_task.shape[1:],
                                   device=out_task.device)
             out[task_mask] = out_task
         return out
+
 
 # class CombinedModel(nn.Module):
 #     def __init__(self, backbone: nn.Module, classifier: nn.Module):
@@ -359,3 +391,37 @@ class CombinedModel(MultiTaskModule):
 #
 #     def forward(self, x):
 #         return self.classifier(torch.flatten(self.backbone(x), 1))
+
+class DropoutWrapper(nn.Module):
+    def __init__(self, i, o):
+        super().__init__()
+        self.t = None
+        self.model = nn.Sequential(nn.ReLU(),
+                                   # UncDropout(0.5),
+                                   nn.Linear(i, i),
+                                   # UncDropout(0.5),
+                                   nn.ReLU(),
+                                   nn.Linear(i, o))
+
+    def force_eval(self):
+        for m in self.modules():
+            if isinstance(m, UncDropout):
+                m.force_eval()
+
+    def set_t(self, t):
+        self.t = t
+
+    def forward(self, x, task_labels=None, t=None, **kwargs):
+        if t is None:
+            t = self.t
+
+        if t is None or t == 1:
+            return self.model(x)
+
+        r = []
+        for _ in range(t):
+            r.append(self.model(x))
+
+        f = torch.stack(r, 0)
+
+        return f.mean(0), f

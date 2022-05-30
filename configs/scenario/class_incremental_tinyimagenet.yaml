@@ -1,0 +1,5 @@
+dataset: tinyimagenet
+scenario: SplitTinyImageNet
+n_tasks: 10
+return_task_id: false
+shuffle: true

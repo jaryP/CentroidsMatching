@@ -1,15 +1,15 @@
-from typing import Union, Tuple
+from typing import Tuple
 
 import numpy as np
 import torch
 import torchvision
 from avalanche.models import MultiHeadClassifier, IncrementalClassifier
 from torch import nn
-from torchvision.models import vgg11
 import torch.nn.functional as F
 
 from models import resnet20, resnet32, custom_vgg
-from models.utils import CombinedModel, CustomMultiHeadClassifier
+from models.utils import CombinedModel, CustomMultiHeadClassifier, \
+    DropoutWrapper
 
 
 def get_backbone(name: str, channels: int = 3):
@@ -31,8 +31,9 @@ def get_backbone(name: str, channels: int = 3):
         model = nn.Sequential(feat, nn.AdaptiveAvgPool2d((7, 7)))
 
         return model
+
     elif name == 'alexnet':
-        return nn.Sequential(
+        s = nn.Sequential(
             nn.Conv2d(3, 64, kernel_size=3, stride=2, padding=1),
             nn.ReLU(inplace=True),
             # nn.Dropout2d(0.25),
@@ -57,6 +58,44 @@ def get_backbone(name: str, channels: int = 3):
             # nn.Dropout2d(0.25),
         )
 
+        class Wrapper(nn.Module):
+            def __init__(self, m):
+                super().__init__()
+                self.model = m
+
+            def forward(self, x, task_label=None, **kwargs):
+                return self.model(x)
+
+        return Wrapper(s)
+
+        # def f(x, **kwargs):
+        #     return s(x)
+        #
+        # return nn.Sequential(
+        #     nn.Conv2d(3, 64, kernel_size=3, stride=2, padding=1),
+        #     nn.ReLU(inplace=True),
+        #     # nn.Dropout2d(0.25),
+        #     nn.MaxPool2d(kernel_size=2),
+        #
+        #     nn.Conv2d(64, 192, kernel_size=3, padding=1),
+        #     nn.ReLU(inplace=True),
+        #     # nn.Dropout2d(0.25),
+        #     nn.MaxPool2d(kernel_size=2),
+        #
+        #     nn.Conv2d(192, 384, kernel_size=3, padding=1),
+        #     nn.ReLU(inplace=True),
+        #     # nn.Dropout2d(0.25),
+        #
+        #     nn.Conv2d(384, 256, kernel_size=3, padding=1),
+        #     nn.ReLU(inplace=True),
+        #     # nn.Dropout2d(0.25),
+        #
+        #     nn.Conv2d(256, 256, kernel_size=3, padding=1),
+        #     nn.ReLU(inplace=True),
+        #     nn.AdaptiveAvgPool2d(1),
+        #     # nn.Dropout2d(0.25),
+        # )
+
     elif 'resnet' in name:
         if name == 'resnet20':
             model = resnet20()
@@ -70,7 +109,7 @@ def get_backbone(name: str, channels: int = 3):
                 super().__init__()
                 self.model = m
 
-            def forward(self, x):
+            def forward(self, x, task_label=None, **kwargs):
                 out = F.relu(self.model.bn1(self.model.conv1(x)))
                 out = self.model.layer1(out)
                 out = self.model.layer2(out)
@@ -88,8 +127,8 @@ def get_cl_model(model_name: str,
                  method_name: str,
                  input_shape: Tuple[int, int, int],
                  sit: bool = False,
-                 cml_out_features: int = None):
-
+                 cml_out_features: int = None,
+                 is_stream: bool = False):
     backbone = get_backbone(model_name, channels=input_shape[0])
     x = torch.randn((1,) + input_shape)
     o = backbone(x)
@@ -97,26 +136,66 @@ def get_cl_model(model_name: str,
     size = np.prod(o.shape)
 
     def heads_generator(i, o):
-        return nn.Sequential(nn.ReLU(),
+        class Wrapper(nn.Module):
+            def __init__(self):
+                super().__init__()
+                self.model = nn.Sequential(nn.ReLU(),
                              nn.Linear(i, i),
                              nn.ReLU(),
                              nn.Linear(i, o))
 
-    if method_name != 'cml':
-        if sit:
-            classifier = IncrementalClassifier(size)
-        else:
-            # classifier = CustomMultiHeadClassifier(size, heads_generator)
-            classifier = MultiHeadClassifier(size)
-    else:
-        if cml_out_features is None:
-            if size > 128:
-                cml_out_features = 128
-            else:
-                cml_out_features = size
+            def forward(self, x, task_labels=None, **kwargs):
+                return self.model(x)
 
-        classifier = CustomMultiHeadClassifier(size, heads_generator,
-                                               cml_out_features)
+        return Wrapper()
+
+        # if sit:
+        #     return nn.Sequential(nn.ReLU(),
+        #                          UncDropout(0.25),
+        #                          nn.Linear(i, i),
+        #                          nn.ReLU(),
+        #                          UncDropout(0.25),
+        #                          nn.Linear(i, o))
+        # else:
+
+        # return nn.Sequential(nn.ReLU(),
+        #                      nn.Linear(i, i),
+        #                      nn.ReLU(),
+        #                      nn.Linear(i, o))
+
+    def drop_heads_generator(i, o):
+        return DropoutWrapper(i, o)
+
+    p = None
+
+    if is_stream or method_name == 'icarl':
+        classifier = IncrementalClassifier(size)
+    else:
+        if method_name == 'er':
+            classifier = CustomMultiHeadClassifier(size, heads_generator)
+        else:
+            if method_name != 'cml':
+                if sit:
+                    classifier = IncrementalClassifier(size)
+                else:
+                    # classifier = CustomMultiHeadClassifier(size, heads_generator)
+                    classifier = MultiHeadClassifier(size)
+            else:
+                if cml_out_features is None:
+                    cml_out_features = 128
+
+                # if sit:
+                #     hg = drop_heads_generator
+                # else:
+                #     hg = heads_generator
+
+                # if sit:
+                #     classifier = heads_generator(size, 128)
+                # else:
+
+                # p = 0.5
+                classifier = CustomMultiHeadClassifier(size, heads_generator,
+                                                       cml_out_features)
 
     model = CombinedModel(backbone, classifier)
 

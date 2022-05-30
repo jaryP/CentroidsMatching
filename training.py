@@ -39,7 +39,7 @@ def avalanche_training(cfg: DictConfig):
     model_name = model['name']
 
     method = cfg['method']
-    plugin_name = method['name']
+    plugin_name = method['name'].lower()
     save_name = method['save_name']
 
     training = cfg['training']
@@ -62,7 +62,9 @@ def avalanche_training(cfg: DictConfig):
         torch.cuda.set_device(device)
         device = 'cuda:{}'.format(device)
     else:
-        warnings.warn("Device not found or CUDA not available.")
+        warnings.warn("Device not found, CUDA not available, "
+                      "or device set to cpu")
+
     device = torch.device(device)
 
     all_results = []
@@ -92,7 +94,6 @@ def avalanche_training(cfg: DictConfig):
 
         # results_path = os.path.join(experiment_path, 'results.pkl')
         results_path = os.path.join(experiment_path, 'results.json')
-        sit = not return_task_id
 
         if load and os.path.exists(results_path):
             log.info(f'Results loaded')
@@ -102,18 +103,26 @@ def avalanche_training(cfg: DictConfig):
                 results = json.load(json_file)
         else:
 
-            rti = return_task_id if plugin_name.lower() != 'cml' else True
+            sit = not return_task_id
+            return_task_id = return_task_id if plugin_name != 'cml' \
+                else True
+            # return_task_id = False
+
+            # force_sit = sit and plugin_name == 'cml'
+            force_sit = False
+
+            if plugin_name in ['icarl', 'er']:
+                assert sit, 'ICarL and ER only work under Class Incremental Scenario'
 
             tasks = get_dataset_nc_scenario(name=dataset,
                                             scenario=scenario_name,
                                             n_tasks=n_tasks,
                                             shuffle=shuffle,
-                                            return_task_id=rti,
-                                            seed=seed)
+                                            return_task_id=return_task_id,
+                                            seed=seed,
+                                            force_sit=force_sit)
 
             img, _, _ = tasks.train_stream[0].dataset[0]
-
-            # plugin = get_plugin(**method)
 
             model = get_cl_model(model_name=model_name,
                                  input_shape=tuple(img.shape),
@@ -135,8 +144,8 @@ def avalanche_training(cfg: DictConfig):
                 bwt_metrics(experience=True, stream=True),
                 loggers=[
                     # TextLogger(output_file),
-                    # TextLogger(),
-                    InteractiveLogger()
+                    TextLogger(),
+                    # InteractiveLogger()
                 ],
                 # benchmark=tasks,
                 # strict_checks=True
@@ -152,7 +161,10 @@ def avalanche_training(cfg: DictConfig):
 
             criterion = CrossEntropyLoss()
 
-            trainer = get_trainer(**method, sit=True)
+            trainer = get_trainer(**method,
+                                  tasks=tasks,
+                                  sit=sit)
+
             strategy = trainer(model=model,
                                criterion=criterion,
                                optimizer=opt,
@@ -176,6 +188,7 @@ def avalanche_training(cfg: DictConfig):
             for i, experience in enumerate(tasks.train_stream):
                 strategy.train(experiences=experience)
                 results.append(strategy.eval(tasks.test_stream[:i + 1]))
+                # print(strategy.eval(tasks.train_stream[:i + 1]))
 
             output_file.close()
 
@@ -207,6 +220,7 @@ def avalanche_training(cfg: DictConfig):
     #                          plugin=plugin_name,
     #                          plugin_name=save_name,
     #                          model_name=model_name)
+    log.info(f'Average across the experiments.')
 
     mean_res = defaultdict(list)
     with open(os.path.join(base_path, 'experiments_results.csv'),
@@ -224,10 +238,17 @@ def avalanche_training(cfg: DictConfig):
             for k, v in r[-1].items():
                 mean_res[k].append(v)
 
-        print(mean_res)
-
         m = {k: np.mean(v) for k, v in mean_res.items()}
         s = {k: np.std(v) for k, v in mean_res.items()}
+
+        for k, v in results[-1].items():
+            _m = m[k]
+            _s = s[k]
+            log.info(f'Metric {k}: mean: {_m*100:.2f}, std: {_s*100:.2f}')
+
+        # print(mean_res)
+
+        # print('Mean', m, s)
 
         m.update({'experiment': 'mean'})
         s.update({'experiment': 'std'})

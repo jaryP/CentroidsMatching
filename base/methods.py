@@ -2,7 +2,9 @@ from avalanche.training import Cumulative, GEM, Replay, Naive, JointTraining, \
     EWC, ICaRL
 from avalanche.training.plugins import GEMPlugin, ReplayPlugin
 
-from methods.strategies import EmbeddingRegularization, ContinualMetricLearning
+from methods.strategies import EmbeddingRegularization, \
+    ContinualMetricLearning, \
+    AnchorLearning
 from models.utils import CombinedModel
 
 
@@ -24,8 +26,9 @@ def get_plugin(name, **kwargs):
         assert False
 
 
-def get_trainer(name, sit: bool = False, **kwargs):
+def get_trainer(name, tasks, sit: bool = False, **kwargs):
     name = name.lower()
+    num_experiences = len(tasks.train_stream)
 
     def f(model: CombinedModel,
           criterion, optimizer,
@@ -42,8 +45,17 @@ def get_trainer(name, sit: bool = False, **kwargs):
                        evaluator=evaluator, device=device)
         elif name == 'ewc':
             return EWC(ewc_lambda=kwargs['ewc_lambda'],
-                       mode=kwargs.get('mode', 'separate'),
+                       mode='separate',
                        decay_factor=kwargs.get('decay_factor', None),
+                       keep_importance_data=kwargs.get('keep_importance_data',
+                                                       False),
+                       model=model, criterion=criterion, optimizer=optimizer,
+                       train_epochs=train_epochs, train_mb_size=train_mb_size,
+                       evaluator=evaluator, device=device)
+        elif name == 'oewc':
+            return EWC(ewc_lambda=kwargs['ewc_lambda'],
+                       mode='online',
+                       decay_factor=kwargs.get('decay_factor', 1),
                        keep_importance_data=kwargs.get('keep_importance_data',
                                                        False),
                        model=model, criterion=criterion, optimizer=optimizer,
@@ -78,23 +90,43 @@ def get_trainer(name, sit: bool = False, **kwargs):
                                            train_epochs=train_epochs,
                                            train_mb_size=train_mb_size,
                                            evaluator=evaluator, device=device,
-                                           feature_extractor=model.backbone,
+                                           feature_extractor=model.feature_extractor,
                                            classifier=model.classifier)
         elif name == 'cml':
+            # if sit:
+            #     return ClassIncrementalContinualMetricLearningPlugin(
+            #         model=model,
+            #         dev_split_size=kwargs.
+            #         get('dev_split_size', 0.1),
+            #         penalty_weight=kwargs.
+            #         get('penalty_weight', 1),
+            #         optimizer=optimizer,
+            #         criterion=criterion,
+            #         train_mb_size=train_mb_size,
+            #         train_epochs=train_epochs,
+            #         device=device,
+            #         sit=sit,
+            #         evaluator=evaluator)
+            # else:
+
             return ContinualMetricLearning(model=model,
                                            dev_split_size=kwargs.
                                            get('dev_split_size', 0.1),
                                            penalty_weight=kwargs.
                                            get('penalty_weight', 1),
+                                           sit_memory_size=kwargs.
+                                           get('sit_memory_size', 100),
+                                           num_experiences=num_experiences,
                                            optimizer=optimizer,
                                            criterion=criterion,
                                            train_mb_size=train_mb_size,
                                            train_epochs=train_epochs,
                                            device=device,
                                            sit=sit,
-                                           evaluator=evaluator)
+                                           evaluator=evaluator,
+                                           eval_every=-1)
         elif name == 'icarl':
-            return ICaRL(feature_extractor=model.backbone,
+            return ICaRL(feature_extractor=model.feature_extractor,
                          classifier=model.classifier,
                          memory_size=kwargs.get('memory_size'),
                          buffer_transform=kwargs.get('buffer_transform', None),
@@ -105,7 +137,29 @@ def get_trainer(name, sit: bool = False, **kwargs):
                          train_epochs=train_epochs,
                          device=device,
                          evaluator=evaluator)
+        elif name == 'hal':
+            return AnchorLearning(feature_extractor=model.feature_extractor,
+                                  classifier=model.classifier,
+                                  ring_size=kwargs.
+                                  get('ring_size', 3),
+                                  lamb=kwargs.
+                                  get('lamb', 1),
+                                  beta=kwargs.
+                                  get('beta', 0.5),
+                                  alpha=kwargs.
+                                  get('alpha', 1e-1),
+                                  k=kwargs.
+                                  get('k', 100),
+                                  embedding_strength=kwargs.
+                                  get('embedding_strength', 0.1),
+                                  optimizer=optimizer,
+                                  criterion=criterion,
+                                  train_mb_size=train_mb_size,
+                                  train_epochs=train_epochs,
+                                  device=device,
+                                  sit=sit,
+                                  evaluator=evaluator)
         else:
-            assert False
+            assert False, f'CL method not found {name.lower()}'
 
     return f
