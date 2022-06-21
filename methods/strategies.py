@@ -14,6 +14,7 @@ from methods.plugins.cml import ContinualMetricLearningPlugin, \
     ClassIncrementalBatchNormModelWrap
 from methods.plugins.er import EmbeddingRegularizationPlugin
 from methods.plugins.hal import AnchorLearningPlugin
+from methods.plugins.ewc import EWCCustomPlugin
 from models.utils import CombinedModel
 
 
@@ -85,7 +86,7 @@ class ContinualMetricLearning(BaseStrategy):
 
     def __init__(self, model: CombinedModel, dev_split_size: float,
                  optimizer: Optimizer, criterion, penalty_weight: float,
-                 train_mb_size: int = 1, train_epochs: int = 1,
+                 train_mb_size: int = 1, train_epochs: int = 1, proj_w=1,
                  eval_mb_size: int = None, device=None,
                  sit: bool = False, num_experiences: int = 20,
                  sit_memory_size: int = 200,
@@ -119,6 +120,7 @@ class ContinualMetricLearning(BaseStrategy):
         #                                    sit_memory_size=sit_memory_size)
 
         rp = DropContinualMetricLearningPlugin(penalty_weight, sit,
+                                               proj_w=proj_w,
                                                num_experiences=num_experiences,
                                                sit_memory_size=sit_memory_size)
 
@@ -228,25 +230,6 @@ class ContinualMetricLearning(BaseStrategy):
             res = self.rp.calculate_classes(self, res)
         return res
 
-    def make_train_dataloader(self, num_workers=0, shuffle=True,
-                              pin_memory=True, **kwargs):
-        """ Data loader initialization.
-
-        Called at the start of each learning experience after the dataset
-        adaptation.
-
-        :param num_workers: number of thread workers for the data loading.
-        :param shuffle: True if the data should be shuffled, False otherwise.
-        :param pin_memory: If True, the data loader will copy Tensors into CUDA
-            pinned memory before returning them. Defaults to True.
-        """
-        self.dataloader = DataLoader(
-            self.adapted_dataset,
-            num_workers=num_workers,
-            batch_size=self.train_mb_size,
-            shuffle=shuffle,
-            pin_memory=pin_memory)
-
 
 class AnchorLearning(BaseStrategy):
     def __init__(self,
@@ -289,145 +272,61 @@ class AnchorLearning(BaseStrategy):
             plugins=plugins,
             evaluator=evaluator, eval_every=eval_every)
 
-    # def training_epoch(self, **kwargs):
-    #     """ Training epoch.
-    #
-    #     :param kwargs:
-    #     :return:
-    #     """
-    #     for self.mbatch in self.dataloader:
-    #         if self._stop_training:
-    #             break
-    #
-    #         self._unpack_minibatch()
-    #         self._before_training_iteration(**kwargs)
-    #
-    #         self.optimizer.zero_grad()
-    #         self.loss = 0
-    #
-    #         # Forward
-    #         self._before_forward(**kwargs)
-    #         self.mb_output = self.forward()
-    #         self._after_forward(**kwargs)
-    #
-    #         # Loss & Backward
-    #         self.loss += self.criterion()
-    #
-    #         self._before_backward(**kwargs)
-    #         self.loss.backward(retain_graph=False)
-    #         self._after_backward(**kwargs)
-    #
-    #         # Optimization step
-    #         self._before_update(**kwargs)
-    #         self.optimizer.step()
-    #         self._after_update(**kwargs)
-    #
-    #         self._after_training_iteration(**kwargs)
 
-# class BatchNormModelWrapper(MultiTaskModule):
-#     def __init__(self, model: nn.Module):
-#         super().__init__()
-#
-#         self.model = model
-#         self.task_bn = nn.ModuleDict()
-#         self.current_task = None
-#
-#         # current_bn = nn.ModuleDict()
-#         #
-#         # for name, module in model.named_modules():
-#         #     if isinstance(module, _BatchNorm):
-#         #         name = name.replace('.', '_')
-#         #         current_bn[name] = module
-#         #
-#         # self.task_bn['0'] = current_bn
-#
-#     def adaptation(self, dataset: AvalancheDataset = None):
-#         # def sequential():
-#         #     for i, l in enumerate(s):
-#         #         if isinstance(l, BatchNorm2d):
-#         #             if skip_last and i == len(s) - 1:
-#         #                 continue
-#         #             s[i] = wrapper_fn(l)
-#         #
-#         #         elif isinstance(l, BasicBlock):
-#         #             s[i] = ResNetBlockWrapper(l, wrapper_fn)
-#
-#         def get_children(model: torch.nn.Module):
-#             # get children form model!
-#             children = list(model.named_children())
-#             flatt_children = []
-#             if children == []:
-#                 # if model has no children; model is last child! :O
-#                 return model
-#             else:
-#                 # look for children from children... to the last child!
-#                 for anme, child in children:
-#                     try:
-#                         flatt_children.extend(get_children(child))
-#                     except TypeError:
-#                         flatt_children.append(get_children(child))
-#             return flatt_children
-#
-#         if self.training:
-#             current_bn = nn.ModuleDict()
-#             # a = get_children(self.model)
-#
-#             for name, module in dict(self.model.named_children()).items():
-#                 if isinstance(module, BatchNorm2d):
-#                     nbn = BatchNorm2d(module.num_features)
-#                     setattr(self.model, name, nbn)
-#
-#                     name = name.replace('.', '_')
-#                     current_bn[name] = nbn
-#
-#             self.task_bn[str(len(self.task_bn))] = current_bn
-#
-#         # for name, module in dict(self.model.named_modules()).items():
-#         #     if isinstance(module, _BatchNorm):
-#         #         name = name.replace('.', '_')
-#         #         # self.task_bn[i] = deepcopy(module)
-#         #         setattr(self.model, name, bns[name])
-#
-#     def forward_single_task(self, x: torch.Tensor, task_label: int,
-#                             return_embeddings: bool = False):
-#
-#         if self.current_task is None or task_label != self.current_task:
-#             bns = self.task_bn[str(task_label)]
-#
-#             self.current_task = task_label
-#
-#             for name, module in dict(self.model.named_modules()).items():
-#                 if isinstance(module, _BatchNorm):
-#                     name = name.replace('.', '_')
-#                     # self.task_bn[i] = deepcopy(module)
-#                     setattr(self.model, name, bns[name])
-#
-#         return self.model(x=x, task_labels=task_label)
-#
-#     def forward(self, x, task_labels, **kwargs):
-#
-#         if isinstance(task_labels, int):
-#             # fast path. mini-batch is single task.
-#             return self.forward_single_task(x, task_labels)
-#         else:
-#             unique_tasks = torch.unique(task_labels)
-#             if len(unique_tasks) == 1:
-#                 unique_tasks = unique_tasks.item()
-#                 return self.forward_single_task(x, unique_tasks)
-#
-#         assert False
-#         # bns = self.task_bn[str(task_labels)]
-#         #
-#         # if self.current_task is None or task_labels != self.current_task:
-#         #     self.current_task = task_labels
-#         # # else:
-#         # #     if task_label != self.current_task:
-#         # #         self.current_task = task_label
-#         # #
-#         #     for name, module in self.model.named_modules():
-#         #         if isinstance(module, _BatchNorm):
-#         #             name = name.replace('_', '.')
-#         #             # self.task_bn[i] = deepcopy(module)
-#         #             setattr(self.model, name, bns[name])
-#         #
-#         # return self.model(x=x, task_labels=task_labels)
+class CustomEWC(BaseStrategy):
+    """ Elastic Weight Consolidation (EWC) strategy.
+
+    See EWC plugin for details.
+    This strategy does not use task identities.
+    """
+
+    def __init__(self, model, optimizer: Optimizer, criterion,
+                 ewc_lambda: float, mode: str = 'separate',
+                 decay_factor: Optional[float] = None,
+                 keep_importance_data: bool = False,
+                 train_mb_size: int = 1, train_epochs: int = 1,
+                 eval_mb_size: int = None, device=None,
+                 plugins: Optional[List[StrategyPlugin]] = None,
+                 evaluator: EvaluationPlugin = default_logger, eval_every=-1):
+        """ Init.
+
+        :param model: The model.
+        :param optimizer: The optimizer to use.
+        :param criterion: The loss criterion to use.
+        :param ewc_lambda: hyperparameter to weigh the penalty inside the total
+               loss. The larger the lambda, the larger the regularization.
+        :param mode: `separate` to keep a separate penalty for each previous
+               experience. `onlinesum` to keep a single penalty summed over all
+               previous tasks. `onlineweightedsum` to keep a single penalty
+               summed with a decay factor over all previous tasks.
+        :param decay_factor: used only if mode is `onlineweightedsum`.
+               It specify the decay term of the importance matrix.
+        :param keep_importance_data: if True, keep in memory both parameter
+                values and importances for all previous task, for all modes.
+                If False, keep only last parameter values and importances.
+                If mode is `separate`, the value of `keep_importance_data` is
+                set to be True.
+        :param train_mb_size: The train minibatch size. Defaults to 1.
+        :param train_epochs: The number of training epochs. Defaults to 1.
+        :param eval_mb_size: The eval minibatch size. Defaults to 1.
+        :param device: The device to use. Defaults to None (cpu).
+        :param plugins: Plugins to be added. Defaults to None.
+        :param evaluator: (optional) instance of EvaluationPlugin for logging
+            and metric computations.
+        :param eval_every: the frequency of the calls to `eval` inside the
+            training loop. -1 disables the evaluation. 0 means `eval` is called
+            only at the end of the learning experience. Values >0 mean that
+            `eval` is called every `eval_every` epochs and at the end of the
+            learning experience.
+        """
+        ewc = EWCCustomPlugin(ewc_lambda, mode, decay_factor, keep_importance_data)
+        if plugins is None:
+            plugins = [ewc]
+        else:
+            plugins.append(ewc)
+
+        super().__init__(
+            model, optimizer, criterion,
+            train_mb_size=train_mb_size, train_epochs=train_epochs,
+            eval_mb_size=eval_mb_size, device=device, plugins=plugins,
+            evaluator=evaluator, eval_every=eval_every)

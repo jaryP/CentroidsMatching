@@ -30,7 +30,7 @@ er)
 cml)
 #  python main.py +scenario=class_incremental_cifar10 +model=resnet20 +training=cifar10 training.epochs=20 +method=cml_05 optimizer=sgd  training.device="$DEVICE" hydra.run.dir='./results/ci_cifar10/resnet20/cml/cml_05'
 #  python main.py +scenario=class_incremental_cifar10 +model=resnet20 +training=cifar10 training.epochs=20 +method=cml_1 optimizer=sgd  training.device="$DEVICE" hydra.run.dir='./results/ci_cifar10/resnet20/cml/cml_1'
-  python main.py +scenario=class_incremental_cifar10 +model=resnet20 +training=cifar10 training.epochs=20 +method=cml_01 optimizer=sgd  training.device="$DEVICE" hydra.run.dir='./results/ci_cifar10/resnet20/cml/cml_01'
+  python main.py +scenario=class_incremental_cifar10 +model=resnet20 +training=cifar10 training.epochs=20 +method=cml_01 +method.proj_w=10 optimizer=sgd  training.device="$DEVICE" hydra.run.dir='./results/ci_cifar10/resnet20/cml/cml_01'
 #  python main.py +scenario=class_incremental_cifar10 +model=resnet20 +training=cifar10 training.epochs=20 +method=cml_10 optimizer=sgd  training.device="$DEVICE" hydra.run.dir='./results/ci_cifar10/resnet20/cml/cml_10'
 ;;
 naive)

@@ -22,10 +22,9 @@ class EmbeddingRegularizationPlugin(StrategyPlugin):
                            strategy.clock.train_exp_counter,
                            strategy.train_mb_size)
 
-        # tid = strategy.experience.current_experience
-
-        # for param in strategy.model.classifier.classifiers[str(tid)].parameters():
-        #     param.requires_grad_(False)
+        tid = strategy.experience.current_experience
+        for param in strategy.model.classifier.classifiers[str(tid)].parameters():
+            param.requires_grad_(False)
 
     @torch.no_grad()
     def update_memory(self, strategy, dataset, t, batch_size):

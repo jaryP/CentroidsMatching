@@ -4,7 +4,8 @@ from avalanche.training.plugins import GEMPlugin, ReplayPlugin
 
 from methods.strategies import EmbeddingRegularization, \
     ContinualMetricLearning, \
-    AnchorLearning
+    AnchorLearning, CustomEWC
+
 from models.utils import CombinedModel
 
 
@@ -44,23 +45,29 @@ def get_trainer(name, tasks, sit: bool = False, **kwargs):
                        train_epochs=train_epochs, train_mb_size=train_mb_size,
                        evaluator=evaluator, device=device)
         elif name == 'ewc':
-            return EWC(ewc_lambda=kwargs['ewc_lambda'],
-                       mode='separate',
-                       decay_factor=kwargs.get('decay_factor', None),
-                       keep_importance_data=kwargs.get('keep_importance_data',
-                                                       False),
-                       model=model, criterion=criterion, optimizer=optimizer,
-                       train_epochs=train_epochs, train_mb_size=train_mb_size,
-                       evaluator=evaluator, device=device)
+            return CustomEWC(ewc_lambda=kwargs['ewc_lambda'],
+                             mode='separate',
+                             decay_factor=kwargs.get('decay_factor', None),
+                             keep_importance_data=kwargs.get(
+                                 'keep_importance_data',
+                                 False),
+                             model=model, criterion=criterion,
+                             optimizer=optimizer,
+                             train_epochs=train_epochs,
+                             train_mb_size=train_mb_size,
+                             evaluator=evaluator, device=device)
         elif name == 'oewc':
-            return EWC(ewc_lambda=kwargs['ewc_lambda'],
-                       mode='online',
-                       decay_factor=kwargs.get('decay_factor', 1),
-                       keep_importance_data=kwargs.get('keep_importance_data',
-                                                       False),
-                       model=model, criterion=criterion, optimizer=optimizer,
-                       train_epochs=train_epochs, train_mb_size=train_mb_size,
-                       evaluator=evaluator, device=device)
+            return CustomEWC(ewc_lambda=kwargs['ewc_lambda'],
+                             mode='online',
+                             decay_factor=kwargs.get('decay_factor', 1),
+                             keep_importance_data=kwargs.get(
+                                 'keep_importance_data',
+                                 False),
+                             model=model, criterion=criterion,
+                             optimizer=optimizer,
+                             train_epochs=train_epochs,
+                             train_mb_size=train_mb_size,
+                             evaluator=evaluator, device=device)
         elif name == 'replay':
             return Replay(mem_size=kwargs['mem_size'], model=model,
                           criterion=criterion, optimizer=optimizer,
@@ -93,29 +100,15 @@ def get_trainer(name, tasks, sit: bool = False, **kwargs):
                                            feature_extractor=model.feature_extractor,
                                            classifier=model.classifier)
         elif name == 'cml':
-            # if sit:
-            #     return ClassIncrementalContinualMetricLearningPlugin(
-            #         model=model,
-            #         dev_split_size=kwargs.
-            #         get('dev_split_size', 0.1),
-            #         penalty_weight=kwargs.
-            #         get('penalty_weight', 1),
-            #         optimizer=optimizer,
-            #         criterion=criterion,
-            #         train_mb_size=train_mb_size,
-            #         train_epochs=train_epochs,
-            #         device=device,
-            #         sit=sit,
-            #         evaluator=evaluator)
-            # else:
-
             return ContinualMetricLearning(model=model,
                                            dev_split_size=kwargs.
-                                           get('dev_split_size', 0.1),
+                                           get('dev_split_size', 100),
                                            penalty_weight=kwargs.
                                            get('penalty_weight', 1),
                                            sit_memory_size=kwargs.
-                                           get('sit_memory_size', 100),
+                                           get('sit_memory_size', 500),
+                                           proj_w=kwargs.
+                                           get('proj_w', 1),
                                            num_experiences=num_experiences,
                                            optimizer=optimizer,
                                            criterion=criterion,

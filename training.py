@@ -4,14 +4,20 @@ import logging
 import os
 import pickle
 import random
+import sys
 import warnings
 from collections import defaultdict
+from typing import List
 
 import numpy as np
 import torch
+from avalanche.evaluation.metric_results import MetricValue
+from avalanche.evaluation.metric_utils import phase_and_task, stream_type
 from avalanche.evaluation.metrics import accuracy_metrics, bwt_metrics, \
     forgetting_metrics, timing_metrics, disk_usage_metrics
-from avalanche.logging import InteractiveLogger, TextLogger
+from avalanche.logging import InteractiveLogger, TextLogger, StrategyLogger
+from avalanche.logging.text_logging import UNSUPPORTED_TYPES
+from avalanche.training import BaseStrategy
 from avalanche.training.plugins import EvaluationPlugin
 from omegaconf import DictConfig, OmegaConf
 from torch.nn import CrossEntropyLoss
@@ -23,6 +29,98 @@ from models.base import get_cl_model
 from utils import get_save_path, get_optimizer
 
 
+class CustomTextLogger(StrategyLogger):
+    def __init__(self, file=sys.stdout):
+        super().__init__()
+        self.file = file
+        self.metric_vals = {}
+
+    def log_single_metric(self, name, value, x_plot) -> None:
+        self.metric_vals[name] = (name, x_plot, value)
+
+    def _val_to_str(self, m_val):
+        if isinstance(m_val, torch.Tensor):
+            return '\n' + str(m_val)
+        elif isinstance(m_val, float):
+            return f'{m_val:.4f}'
+        else:
+            return str(m_val)
+
+    def print_current_metrics(self):
+        sorted_vals = sorted(self.metric_vals.values(),
+                             key=lambda x: x[0])
+        for name, x, val in sorted_vals:
+            if isinstance(val, UNSUPPORTED_TYPES):
+                continue
+            val = self._val_to_str(val)
+            print(f'\t{name} = {val}', file=self.file, flush=True)
+
+    def before_training_exp(self, strategy: 'BaseStrategy',
+                            metric_values: List['MetricValue'], **kwargs):
+        super().before_training_exp(strategy, metric_values, **kwargs)
+        self._on_exp_start(strategy)
+
+    def before_eval_exp(self, strategy: 'BaseStrategy',
+                        metric_values: List['MetricValue'], **kwargs):
+        super().before_eval_exp(strategy, metric_values, **kwargs)
+        self._on_exp_start(strategy)
+
+    def after_eval_exp(self, strategy: 'BaseStrategy',
+                       metric_values: List['MetricValue'], **kwargs):
+        super().after_eval_exp(strategy, metric_values, **kwargs)
+        exp_id = strategy.experience.current_experience
+        task_id = phase_and_task(strategy)[1]
+        if task_id is None:
+            print(f'> Eval on experience {exp_id} '
+                  f'from {stream_type(strategy.experience)} stream ended.',
+                  file=self.file, flush=True)
+        else:
+            print(f'> Eval on experience {exp_id} (Task '
+                  f'{task_id}) '
+                  f'from {stream_type(strategy.experience)} stream ended.',
+                  file=self.file, flush=True)
+        self.print_current_metrics()
+        self.metric_vals = {}
+
+    def before_training(self, strategy: 'BaseStrategy',
+                        metric_values: List['MetricValue'], **kwargs):
+        super().before_training(strategy, metric_values, **kwargs)
+        print('-- >> Start of training phase << --', file=self.file, flush=True)
+
+    def before_eval(self, strategy: 'BaseStrategy',
+                    metric_values: List['MetricValue'], **kwargs):
+        super().before_eval(strategy, metric_values, **kwargs)
+        print('-- >> Start of eval phase << --', file=self.file, flush=True)
+
+    def after_training(self, strategy: 'BaseStrategy',
+                       metric_values: List['MetricValue'], **kwargs):
+        super().after_training(strategy, metric_values, **kwargs)
+        print('-- >> End of training phase << --', file=self.file, flush=True)
+
+    def after_eval(self, strategy: 'BaseStrategy',
+                   metric_values: List['MetricValue'], **kwargs):
+        super().after_eval(strategy, metric_values, **kwargs)
+        print('-- >> End of eval phase << --', file=self.file, flush=True)
+        self.print_current_metrics()
+        self.metric_vals = {}
+
+    def _on_exp_start(self, strategy: 'BaseStrategy'):
+        action_name = 'training' if strategy.is_training else 'eval'
+        exp_id = strategy.experience.current_experience
+        task_id = phase_and_task(strategy)[1]
+        stream = stream_type(strategy.experience)
+        if task_id is None:
+            print('-- Starting {} on experience {} from {} stream --'
+                  .format(action_name, exp_id, stream),
+                  file=self.file,
+                  flush=True)
+        else:
+            print('-- Starting {} on experience {} (Task {}) from {} stream --'
+                  .format(action_name, exp_id, task_id, stream),
+                  file=self.file,
+                  flush=True)
+
+
 def avalanche_training(cfg: DictConfig):
     log = logging.getLogger(__name__)
     log.info(OmegaConf.to_yaml(cfg))
@@ -32,7 +130,10 @@ def avalanche_training(cfg: DictConfig):
     scenario_name = scenario['scenario']
     n_tasks = scenario['n_tasks']
     return_task_id = scenario['return_task_id']
+
     shuffle = scenario['shuffle']
+    shuffle_first = scenario.get('shuffle_first', False)
+
     seed = scenario.get('seed', None)
 
     model = cfg['model']
@@ -82,18 +183,32 @@ def avalanche_training(cfg: DictConfig):
 
         experiment_path = os.path.join(base_path, str(seed))
 
-        # experiment_path = get_save_path(scenario_name=scenario_name,
-        #                                 plugin=plugin_name,
-        #                                 plugin_name=save_name,
-        #                                 model_name=model_name,
-        #                                 exp_n=exp_n,
-        #                                 sit=not return_task_id)
-        # experiment_path = os.getcwd()
-
         os.makedirs(experiment_path, exist_ok=True)
 
         # results_path = os.path.join(experiment_path, 'results.pkl')
         results_path = os.path.join(experiment_path, 'results.json')
+
+        sit = not return_task_id
+        return_task_id = return_task_id if plugin_name != 'cml' \
+            else True
+        # return_task_id = False
+
+        # force_sit = sit and plugin_name == 'cml'
+        force_sit = False
+
+        if plugin_name in ['icarl', 'er'] and sit:
+            assert sit, 'ICarL and ER only work under Class Incremental Scenario'
+
+        tasks = get_dataset_nc_scenario(name=dataset,
+                                        scenario=scenario_name,
+                                        n_tasks=n_tasks,
+                                        shuffle=shuffle if exp_n < n_experiments else shuffle_first,
+                                        return_task_id=return_task_id,
+                                        seed=seed,
+                                        force_sit=force_sit)
+
+        log.info(f'Original classes: {tasks.classes_order_original_ids}')
+        log.info(f'Original classes per exp: {tasks.original_classes_in_exp}')
 
         if load and os.path.exists(results_path):
             log.info(f'Results loaded')
@@ -102,25 +217,6 @@ def avalanche_training(cfg: DictConfig):
             with open(results_path) as json_file:
                 results = json.load(json_file)
         else:
-
-            sit = not return_task_id
-            return_task_id = return_task_id if plugin_name != 'cml' \
-                else True
-            # return_task_id = False
-
-            # force_sit = sit and plugin_name == 'cml'
-            force_sit = False
-
-            if plugin_name in ['icarl', 'er']:
-                assert sit, 'ICarL and ER only work under Class Incremental Scenario'
-
-            tasks = get_dataset_nc_scenario(name=dataset,
-                                            scenario=scenario_name,
-                                            n_tasks=n_tasks,
-                                            shuffle=shuffle,
-                                            return_task_id=return_task_id,
-                                            seed=seed,
-                                            force_sit=force_sit)
 
             img, _, _ = tasks.train_stream[0].dataset[0]
 
@@ -137,14 +233,15 @@ def avalanche_training(cfg: DictConfig):
                                  stream=True),
                 # loss_metrics(minibatch=True, epoch=True, experience=True, stream=True),
                 # timing_metrics(epoch=True),
-                forgetting_metrics(experience=True, stream=False),
+                # forgetting_metrics(experience=True, stream=False),
                 # cpu_usage_metrics(experience=True),
                 # confusion_matrix_metrics(num_classes=tasks.n_classes, save_image=False, stream=True),
                 # disk_usage_metrics(minibatch=True, epoch=True, experience=True, stream=True),
                 bwt_metrics(experience=True, stream=True),
                 loggers=[
                     # TextLogger(output_file),
-                    TextLogger(),
+                    # TextLogger(),
+                    CustomTextLogger(),
                     # InteractiveLogger()
                 ],
                 # benchmark=tasks,
@@ -172,16 +269,6 @@ def avalanche_training(cfg: DictConfig):
                                train_mb_size=batch_size,
                                evaluator=eval_plugin,
                                device=device)
-
-            # strategy = BaseStrategy(model=model,
-            #                         plugins=[
-            #                             plugin] if plugin is not None else None,
-            #                         criterion=criterion,
-            #                         optimizer=opt,
-            #                         train_epochs=epochs,
-            #                         train_mb_size=batch_size,
-            #                         evaluator=eval_plugin,
-            #                         device=device)
 
             results = []
 
@@ -231,9 +318,9 @@ def avalanche_training(cfg: DictConfig):
         writer.writeheader()
 
         for i, r in enumerate(all_results):
-            res = {'experiment': i + 1}
-            res.update(r[-1])
-            writer.writerow(res)
+            # res = {'experiment': i + 1}
+            # res.update(r[-1])
+            # writer.writerow(res)
 
             for k, v in r[-1].items():
                 mean_res[k].append(v)
@@ -246,15 +333,11 @@ def avalanche_training(cfg: DictConfig):
             _s = s[k]
             log.info(f'Metric {k}: mean: {_m*100:.2f}, std: {_s*100:.2f}')
 
-        # print(mean_res)
-
-        # print('Mean', m, s)
-
-        m.update({'experiment': 'mean'})
-        s.update({'experiment': 'std'})
-
-        writer.writerow(m)
-        writer.writerow(s)
+        # m.update({'experiment': 'mean'})
+        # s.update({'experiment': 'std'})
+        #
+        # writer.writerow(m)
+        # writer.writerow(s)
 
 
 # def continual_metric_learning_training(cfg: DictConfig):

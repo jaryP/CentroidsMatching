@@ -28,7 +28,7 @@ er)
 #  python main.py +scenario=task_incremental_cifar100 +model=resnet20 +training=cifar100 +method=er_500_10 optimizer=sgd  training.device="$DEVICE" hydra.run.dir='./results/ti_cifar100/resnet20/er/er_500_10'
 ;;
 cml)
-  python main.py +scenario=task_incremental_cifar100 +model=resnet20 +training=cifar100 training.epochs=40 +method=cml_01 optimizer=sgd  training.device="$DEVICE" hydra.run.dir='./results/ti_cifar100/resnet20/cml/cml_01'
+  python main.py +scenario=task_incremental_cifar100 +model=resnet20 +training=cifar100 +method=cml_01 optimizer=sgd  training.device="$DEVICE" hydra.run.dir='./results/ti_cifar100/resnet20/cml/cml_01'
 #  python main.py +scenario=task_incremental_cifar100 +model=resnet20 +training=cifar100 training.epochs=40 +method=cml_05 optimizer=sgd  training.device="$DEVICE" hydra.run.dir='./results/ti_cifar100/resnet20/cml/cml_05'
 #  python main.py +scenario=task_incremental_cifar100 +model=resnet20 +training=cifar100 training.epochs=40 +method=cml_1 optimizer=sgd  training.device="$DEVICE" hydra.run.dir='./results/ti_cifar100/resnet20/cml/cml_1'
 #  python main.py +scenario=task_incremental_cifar100 +model=resnet20 +training=cifar100 training.epochs=40 +method=cml_10 optimizer=sgd  training.device="$DEVICE" hydra.run.dir='./results/ti_cifar100/resnet20/cml/cml_10'
@@ -43,7 +43,7 @@ icarl)
   python main.py +scenario=task_incremental_cifar100 +model=resnet20 +training=cifar10 +method=icarl_2000 optimizer=sgd  training.device="$DEVICE" hydra.run.dir='./results/ti_cifar10/resnet20/icarl/icarl_2000/'
 ;;
 replay)
-  python main.py +scenario=task_incremental_cifar100 +model=resnet20 +training=cifar100 +method=replay_500 optimizer=sgd  training.device="$DEVICE" hydra.run.dir='./results/ti_cifar100/resnet20/replay/replay_500'
+  python main.py +scenario=task_incremental_cifar100 +model=resnet20 +training=cifar100 +method=replay_500 optimizer=sgd  training.device="$DEVICE" hydra.run.dir='./results/ti_cifar100/resnet20/replay/replay_500_1'
 #  python main.py +scenario=task_incremental_cifar100 +model=resnet20 +training=cifar100 +method=replay_1000 optimizer=sgd  training.device="$DEVICE" hydra.run.dir='./results/ti_cifar100/resnet20/replay/replay_1000'
 ;;
 *)

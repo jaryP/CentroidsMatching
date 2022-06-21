@@ -1,0 +1,4 @@
+name: cml
+penalty_weight: 0.01
+save_name: cml_001
+sit_memory_size: 500

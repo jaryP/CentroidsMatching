@@ -7,7 +7,8 @@ import numpy as np
 import torch
 from avalanche.benchmarks.utils import AvalancheDataset, AvalancheSubset, \
     AvalancheConcatDataset
-from avalanche.benchmarks.utils.data_loader import ReplayDataLoader
+from avalanche.benchmarks.utils.data_loader import ReplayDataLoader, \
+    TaskBalancedDataLoader, GroupBalancedDataLoader
 from avalanche.models import MultiTaskModule
 from avalanche.training import BaseStrategy, ExperienceBalancedBuffer, \
     ClassBalancedBuffer
@@ -74,6 +75,124 @@ class Projector(nn.Module):
         elif self.proj_type == 'mlp':
             return self.values[i](x)
 
+
+class EmbsProjector(nn.Module):
+    def __init__(self, embedding_size, n_tasks):
+        super().__init__()
+
+        self.linear = nn.Sequential(
+            nn.Linear(embedding_size * n_tasks, n_tasks))
+
+        self.params = nn.ModuleList([nn.Sequential(
+            nn.Linear(embedding_size, embedding_size),
+            nn.ReLU(),
+            nn.Linear(embedding_size, embedding_size))
+            for _ in range(n_tasks)])
+
+        self.values = None
+
+    def reset(self, n_tasks, embedding_size):
+        if self.proj_type == 'offset':
+            offsets = nn.ParameterList(
+                [nn.Parameter(torch.randn(embedding_size))
+                 for _ in range(n_tasks)])
+
+            self.values = offsets
+
+        elif self.proj_type == 'embeddings':
+            emb = nn.Embedding(num_embeddings=n_tasks,
+                               embedding_dim=embedding_size)
+            linear = nn.Sequential(nn.Linear(embedding_size, embedding_size),
+                                   nn.ReLU(),
+                                   nn.Linear(embedding_size, embedding_size))
+            params = nn.ModuleList([emb, linear])
+
+            self.values = params
+        elif self.proj_type == 'mlp':
+            params = nn.ModuleList([nn.Sequential(
+                nn.Linear(embedding_size, embedding_size),
+                nn.ReLU(),
+                nn.Linear(embedding_size, embedding_size))
+                for _ in range(n_tasks)])
+
+            self.values = params
+
+    def forward(self, x):
+
+        x = [self.params[i](_x) for i, _x in enumerate(x)]
+        x_cat = torch.cat(x, -1)
+        x_stack = torch.stack(x, 1)
+
+        ws = self.linear(x_cat)
+        ws = softmax(ws, -1)
+
+        return (x_stack * ws.unsqueeze(-1)).sum(1)
+
+
+class ScaleTranslate(nn.Module):
+    def __init__(self, proj_type='offset', device=None):
+        super().__init__()
+
+        self.proj_type = proj_type
+        self.device = device
+        self.values = None
+
+        self.s = nn.ModuleList()
+
+        self.t = nn.ModuleList()
+
+    def add_task(self, embedding_size):
+        s = nn.Sequential(nn.Linear(embedding_size, embedding_size),
+                          nn.ReLU(),
+                          nn.Linear(embedding_size, embedding_size),
+                          nn.Sigmoid())
+
+        t = nn.Sequential(nn.Linear(embedding_size, embedding_size),
+                          nn.ReLU(),
+                          nn.Linear(embedding_size, embedding_size))
+
+        self.s.append(s)
+        self.t.append(t)
+
+    #
+    # def reset(self, n_tasks, embedding_size):
+    #     if self.proj_type == 'offset':
+    #         offsets = nn.ParameterList(
+    #             [nn.Parameter(torch.randn(embedding_size))
+    #              for _ in range(n_tasks)])
+    #
+    #         self.values = offsets
+    #
+    #     elif self.proj_type == 'embeddings':
+    #         emb = nn.Embedding(num_embeddings=n_tasks,
+    #                            embedding_dim=embedding_size)
+    #         linear = nn.Sequential(nn.Linear(embedding_size, embedding_size),
+    #                                nn.ReLU(),
+    #                                nn.Linear(embedding_size, embedding_size))
+    #         params = nn.ModuleList([emb, linear])
+    #
+    #         self.values = params
+    #     elif self.proj_type == 'mlp':
+    #         params = nn.ModuleList([nn.Sequential(
+    #             nn.Linear(embedding_size, embedding_size),
+    #             nn.ReLU(),
+    #             nn.Linear(embedding_size, embedding_size))
+    #             for _ in range(n_tasks)])
+    #
+    #         self.values = params
+
+    def forward(self, x, i):
+
+        return x * self.s[i](x) + self.t[i](x)
+
+        # if self.proj_type == 'offset':
+        #     return x + self.values[i]
+        # elif self.proj_type == 'embeddings':
+        #     off = self.values[0](torch.tensor(i, dtype=torch.long))
+        #     off = self.values[1](off)
+        #     return x + off
+        # elif self.proj_type == 'mlp':
+        #     return self.values[i](x)
 
 class UncDropout(_DropoutNd):
     def __init__(self, p: float = 0.5, inplace: bool = False) -> None:
@@ -976,14 +1095,16 @@ class ContinualMetricLearningPlugin(StrategyPlugin):
             shuffle=shuffle)
 
 
-class DropContinualMetricLearningPlugin(StrategyPlugin):
+class _DropContinualMetricLearningPlugin(StrategyPlugin):
     def __init__(self, penalty_weight: float, sit=False,
+                 proj_w: float = 1,
                  sit_penalty_wights: float = 0,
                  sit_memory_size: int = 200,
                  num_experiences: int = 20):
 
         super().__init__()
 
+        self.proj_w = proj_w
         self.scaler = Projector('mlp')
         self.forests = {}
         self.classifier = None
@@ -1237,9 +1358,9 @@ class DropContinualMetricLearningPlugin(StrategyPlugin):
                     # score = svc.score(X, Y)
                     # print(score)
 
-                    pca_X = PCA(n_components=2).fit_transform(X)
-                    plt.scatter(pca_X[:, 0], pca_X[:, 1], c=Y)
-                    plt.show()
+                    # pca_X = PCA(n_components=2).fit_transform(X)
+                    # plt.scatter(pca_X[:, 0], pca_X[:, 1], c=Y)
+                    # plt.show()
 
                 # for k, v in self.memory.items():
                 #     embeddings = []
@@ -1865,28 +1986,6 @@ class DropContinualMetricLearningPlugin(StrategyPlugin):
             tot_sim = 0
 
             if self.sit:
-                # maximize the entropy of the current task wrt other heads
-                for i in range(len(self.tasks_centroids)):
-                    dataloader = DataLoader(self.memory[i],
-                                            batch_size=len(x),
-                                            shuffle=True)
-
-                    px, py, _ = next(iter(dataloader))
-                    px = px.to(strategy.device)
-                    py = py.to(strategy.device)
-
-                    p_e = self.custom_forward(self.past_model, px, i,
-                                              force_eval=True)
-
-                    c_e = self.custom_forward(strategy.model, px, i,
-                                              force_eval=True)
-
-                    # sim = cosine_similarity(p_e, c_e, -1)
-                    # _dist = 1 - sim
-
-                    _dist = torch.norm(p_e - c_e, p=2, dim=1)
-                    dist += _dist.mean()
-
                 lens = [len(c) for c in self.tasks_centroids]
                 offsets = np.cumsum(lens)
 
@@ -1901,8 +2000,10 @@ class DropContinualMetricLearningPlugin(StrategyPlugin):
                                     shuffle=True)
 
                 past_x, past_y, past_t = next(iter(loader))
-                past_x, past_y, past_t = past_x.to(strategy.device), past_y.to(strategy.device), past_t.to(strategy.device)
-                x, y, t = torch.cat((x, past_x), 0), torch.cat((y, past_y)), torch.cat((t, past_t))
+                past_x, past_y, past_t = past_x.to(strategy.device), past_y.to(
+                    strategy.device), past_t.to(strategy.device)
+                x, y, t = torch.cat((x, past_x), 0), torch.cat(
+                    (y, past_y)), torch.cat((t, past_t))
 
                 e = 0
 
@@ -1916,18 +2017,442 @@ class DropContinualMetricLearningPlugin(StrategyPlugin):
                 centroids = torch.cat([self.scaler(c, task)
                                        for task, c in
                                        enumerate(chain(self.tasks_centroids,
-                                                       [self.current_centroids]))],
+                                                       [
+                                                           self.current_centroids]))],
                                       0)
 
                 loss = self._loss_f(e, y, centroids)
                 loss = loss.view(-1).mean()
 
-                if strategy.clock.train_epoch_iterations % 50 == 0:
-                    print(loss)
+                strategy.loss += loss * self.proj_w
 
-                strategy.loss += loss
+            for i in range(len(self.tasks_centroids)):
+                p_e = self.custom_forward(self.past_model, x, i,
+                                          force_eval=True)
 
+                c_e = self.custom_forward(strategy.model, x, i,
+                                          force_eval=True)
+
+                _dist = torch.norm(p_e - c_e, p=2, dim=1)
+                dist += _dist.mean()
+
+            dist = dist / len(self.tasks_centroids)
+
+            dist = dist * self.penalty_weight
+            tot_sim = tot_sim * self.sit_penalty_wights
+
+            # if strategy.clock.train_epoch_iterations % 50 == 0:
+            #     print(strategy.loss, dist, tot_sim)
+
+            strategy.loss += (dist + tot_sim)
+
+            # self.past_model = deepcopy(strategy.model)
+
+
+class DropContinualMetricLearningPlugin(StrategyPlugin):
+    def __init__(self, penalty_weight: float, sit=False,
+                 proj_w: float = 1,
+                 sit_penalty_wights: float = 0,
+                 sit_memory_size: int = 200,
+                 num_experiences: int = 20):
+
+        super().__init__()
+
+        self.proj_w = proj_w
+        self.scaler = ScaleTranslate()
+        self.embs_proj = None
+
+        self.forests = {}
+        self.classifier = None
+        self.past_model = None
+        self.penalty_weight = penalty_weight
+        self.sit_penalty_wights = sit_penalty_wights
+        self.sit_memory_size = sit_memory_size
+
+        self.similarity = 'euclidean'
+        self.tasks_centroids = []
+        self.thresholds = []
+
+        self.memory = {}
+
+        self.sit = sit
+        self.tasks_forest = {}
+
+        self.current_centroids = None
+        self.initial_model = None
+
+        self.storage_policy = ExperienceBalancedBuffer(
+            max_size=sit_memory_size,
+            adaptive_size=True)
+
+    def custom_forward(self, model, x, task_id, t=None, force_eval=False):
+        f = model(x, task_id)
+        if t is None:
+            return f
+
+        return f, [f]
+
+    def calculate_centroids(self, strategy: BaseStrategy, dataset, model=None,
+                            task=None):
+        if model is None:
+            model = strategy.model
+
+        if task is None:
+            task = strategy.experience.current_experience
+
+        # if self.sit:
+        #     strategy.model.classifier.classifiers[str(task)].force_eval()
+
+        # model = strategy.model
+        device = strategy.device
+        dataloader = DataLoader(dataset,
+                                batch_size=strategy.train_mb_size)
+        # batch_size=len(dataset))
+
+        classes = set(dataset.targets)
+
+        embs = defaultdict(list)
+
+        # classes = set()
+        # for x, y, tid in data:
+        #     x, y, _ = d
+        #     emb, _ = strategy.model.forward_single_task(x, t, True)
+        #     classes.update(y.detach().cpu().tolist())
+
+        classes = sorted(classes)
+
+        for d in dataloader:
+            x, y, tid = d
+            x = x.to(device)
+
+            embeddings = self.custom_forward(model, x, task,
+                                             force_eval=True)
+
+            for c in classes:
+                embs[c].append(embeddings[y == c])
+
+        embs = {c: torch.cat(e, 0) for c, e in embs.items()}
+
+        centroids = torch.stack([torch.mean(embs[c], 0) for c in classes], 0)
+
+        # if self.sit and len(self.tasks_centroids) > 0:
+        #     centroids_means = torch.cat(self.tasks_centroids, 0).sum(0,
+        #                                                              keepdims=True)
+        #     centroids += centroids_means
+
+        return centroids
+
+    def calculate_similarity(self, x, y, distance: str = None, sigma=1):
+        if distance is None:
+            distance = self.similarity
+
+        n = x.size(0)
+        m = y.size(0)
+        d = x.size(1)
+        if d != y.size(1):
+            raise Exception
+
+        a = x.unsqueeze(1).expand(n, m, d)
+        b = y.unsqueeze(0).expand(n, m, d)
+
+        if distance == 'euclidean':
+            similarity = -torch.pow(a - b, 2).sum(2).sqrt()
+        elif distance == 'rbf':
+            similarity = -torch.pow(a - b, 2).sum(2).sqrt()
+            similarity = similarity / (2 * sigma ** 2)
+            similarity = torch.exp(similarity)
+        elif distance == 'cosine':
+            similarity = cosine_similarity(a, b, -1)
+        else:
+            assert False
+
+        return similarity
+
+    def _loss_f(self, x, y, centroids):
+        sim = self.calculate_similarity(x, centroids)
+
+        log_p_y = log_softmax(sim, dim=1)
+
+        # if self.sit:
+        #     loss_val = -log_p_y.gather(1, (y.unsqueeze(-1) - y.max()))
+        # else:
+        loss_val = -log_p_y.gather(1, y.unsqueeze(-1))
+
+        return loss_val
+
+    def loss(self, strategy, **kwargs):
+        if not strategy.model.training:
+            return -1
+
+        mb_output, y, x = strategy.mb_output, strategy.mb_y, strategy.mb_x
+        centroids = self.calculate_centroids(strategy,
+                                             strategy.experience.dev_dataset)
+
+        # if self.sit and len(self.tasks_centroids) > 0:
+        #     t = strategy.mb_task_id
+        #
+        #     lens = [len(c) for c in self.tasks_centroids]
+        #     offsets = np.cumsum(lens)
+        #
+        #     offsets_tensor = torch.tensor([0] + offsets.tolist(),
+        #                                   dtype=torch.long,
+        #                                   device=strategy.device)
+        #
+        #     y += torch.index_select(offsets_tensor, 0, t)
+        #
+        #     e = self.embs_proj(
+        #         [self.custom_forward(strategy.model, x, task)
+        #          for task in range(len(offsets_tensor))])
+        #
+        #     centroids = torch.cat([self.scaler(c, task)
+        #                            for task, c in
+        #                            enumerate(chain(self.tasks_centroids,
+        #                                            [centroids]))], 0)
+        #
+        #     loss = self._loss_f(e, y, centroids)
+        #     loss_val = loss.view(-1).mean()
+        #
+        # else:
+        # if self.sit and len(self.tasks_centroids) > 0:
+        #     c = torch.cat(self.tasks_centroids, 0)
+        #     centroids = torch.cat((c, centroids), 0)
+
+        self.current_centroids = centroids
+
+        mb_output = self.custom_forward(strategy.model, x,
+                                        strategy.experience.current_experience)
+
+        loss_val = self._loss_f(mb_output, y, centroids).view(-1).mean()
+
+        return loss_val
+
+    # def before_training(self, strategy: 'BaseStrategy', **kwargs):
+    #     if self.initial_model is None:
+    #         self.initial_model = deepcopy(strategy.model.feature_extractor.state_dict())
+    #
+    # def before_train_dataset_adaptation(self, strategy: 'BaseStrategy',
+    #                                     **kwargs):
+    #     strategy.model.feature_extractor.load_state_dict(self.initial_model)
+
+    def after_training_exp(self, strategy, **kwargs):
+
+        with torch.no_grad():
+            tid = strategy.experience.current_experience
+
+            centroids = self.calculate_centroids(strategy,
+                                                 strategy.experience.
+                                                 dev_dataset)
+
+            self.tasks_centroids.append(centroids)
+
+            if isinstance(strategy.model, BatchNormModelWrap):
+                for name, module in strategy.model.named_modules():
+                    # if isinstance(module, (TaskIncrementalBatchNorm2D,
+                    #                        ClassIncrementalBatchNorm2D)):
+                    if isinstance(module, TaskIncrementalBatchNorm2D):
+                        module.freeze_eval(tid)
+
+            self.past_model = deepcopy(strategy.model)
+            self.past_model.eval()
+
+            self.storage_policy.update(strategy, **kwargs)
+
+        if self.sit:
+            idxs = np.arange(len(strategy.experience.dataset))
+            # idxs = idxs[np.concatenate((s[:self.sit_memory_size // 2],
+            #                             s[-self.sit_memory_size // 2:]))]
+            np.random.shuffle(idxs)
+            idxs = idxs[:self.sit_memory_size]
+
+            dataset = AvalancheSubset(strategy.experience.dataset, idxs)
+
+            self.memory[len(self.memory)] = dataset
+
+            num_tasks = len(self.tasks_centroids)
+            if num_tasks == 1:
+                return
+
+    def before_train_dataset_adaptation(self, strategy: 'BaseStrategy',
+                                        **kwargs):
+
+        num_tasks = len(self.tasks_centroids)
+
+        if num_tasks == 0 or not self.sit:
+            return
+
+        emb_shape = self.tasks_centroids[0].shape[1]
+
+        if num_tasks == 1:
+            self.scaler.add_task(emb_shape)
+
+        self.scaler.add_task(emb_shape)
+
+        # for _ in range(num_tasks + 1):
+        #     self.scaler.add_task(emb_shape)
+
+        # self.scaler.reset(num_tasks + 1, emb_shape)
+        self.scaler = self.scaler.to(strategy.device)
+
+        # self.embs_proj = EmbsProjector(emb_shape, num_tasks + 1).to(
+        #     strategy.device)
+
+        strategy.optimizer.state = defaultdict(dict)
+
+        # strategy.optimizer.param_groups[0]['params'] = list(
+        #     chain(strategy.model.parameters(),
+        #           self.scaler.parameters(), self.embs_proj.parameters()))
+
+        strategy.optimizer.param_groups[0]['params'] = list(
+            chain(strategy.model.parameters(),
+                  self.scaler.parameters()))
+
+        # strategy.dataloader = ReplayDataLoader(
+        #     strategy.adapted_dataset,
+        #     self.storage_policy.buffer,
+        #     oversample_small_tasks=True,
+        #     batch_size=strategy.train_mb_size,
+        #     shuffle=True)
+
+    # def before_training_exp(self, strategy: "BaseStrategy",
+    #                         num_workers: int = 0, shuffle: bool = True,
+    #                         **kwargs):
+    #
+    #     if len(self.storage_policy.buffer) == 0:
+    #         # first experience. We don't use the buffer, no need to change
+    #         # the dataloader.
+    #         return
+    #
+    #     strategy.dataloader = ReplayDataLoader(
+    #         strategy.adapted_dataset,
+    #         self.storage_policy.buffer,
+    #         oversample_small_tasks=True,
+    #         batch_size=strategy.train_mb_size,
+    #         shuffle=True)
+
+    @torch.no_grad()
+    def calculate_classes(self, strategy, embeddings):
+        mode = strategy.model.training
+        strategy.model.eval()
+
+        correct_task = strategy.experience.current_experience
+        x = strategy.mb_x
+
+        if self.sit and len(self.tasks_centroids) > 1:
+            cumsum = np.cumsum([len(c) for c in self.tasks_centroids])
+
+            upper = cumsum[correct_task]
+            lower = 0 if correct_task == 0 else cumsum[correct_task - 1]
+
+            emb_shape = self.tasks_centroids[0].shape[1]
+            num_tasks = len(self.tasks_centroids)
+
+            e = 0
+
+            for task in range(len(self.tasks_centroids)):
+                e += self.scaler(
+                    self.custom_forward(strategy.model, x, task),
+                    task)
+
+            # e += self.scaler(self.custom_forward(strategy.model, x, task),
+            #                  task)
+
+            # e = self.embs_proj([self.custom_forward(strategy.model, x, task)
+            #                     for task in range(num_tasks)])
+
+            # centroids = torch.cat([c + self.scaler[task]
+            #                        for task, c in
+            #                        enumerate(self.tasks_centroids)],
+            #                       0)
+
+            centroids = torch.cat([self.scaler(c, task)
+                                   for task, c in
+                                   enumerate(self.tasks_centroids)],
+                                  0)
+
+            pred = self.calculate_similarity(e, centroids).argmax(-1)
+            pred[pred >= upper] = -1
+            pred = pred - lower
+
+        else:
+            if len(self.tasks_centroids) == 0:
+                centroids = self.current_centroids
             else:
+                centroids = self.tasks_centroids[correct_task]
+
+            if centroids is None:
+                return torch.full_like(strategy.mb_y, -1)
+
+            sim = self.calculate_similarity(embeddings, centroids)
+            pred = torch.argmax(sim, 1)
+
+        strategy.model.train(mode)
+
+        return pred
+
+    def before_backward(self, strategy, **kwargs):
+        if len(self.tasks_centroids) > 0:
+
+            x, y, t = strategy.mbatch
+            dist = 0
+            tot_sim = 0
+
+            if self.sit and self.proj_w > 0:
+                lens = [len(c) for c in self.tasks_centroids]
+                offsets = np.cumsum(lens)
+
+                offsets_tensor = torch.tensor([0] + offsets.tolist(),
+                                              dtype=torch.long,
+                                              device=strategy.device)
+
+                concatenated_tasks = self.storage_policy.buffer
+
+                loader = DataLoader(concatenated_tasks,
+                                    batch_size=len(x),
+                                    shuffle=True)
+
+                past_x, past_y, past_t = next(iter(loader))
+                past_x, past_y, past_t = past_x.to(strategy.device), past_y.to(
+                    strategy.device), past_t.to(strategy.device)
+                # x, y, t = torch.cat((x, past_x), 0), torch.cat(
+                #     (y, past_y)), torch.cat((t, past_t))
+
+                e = 0
+
+                p = torch.full((y.shape[0],), 0.5, device=x.device)
+                m = torch.bernoulli(p)
+
+                xm = m.unsqueeze(-1).unsqueeze(-1).unsqueeze(-1)
+                x = xm * x + (1 - xm) * past_x
+
+                m = m.long()
+                y = m * y + (1 - m) * past_y
+
+                t = m * t + (1 - m) * past_t
+
+                y += torch.index_select(offsets_tensor, 0, t)
+
+                for task in range(len(offsets_tensor)):
+                    e += self.scaler(
+                        self.custom_forward(strategy.model, x, task),
+                        task)
+
+                # e = self.embs_proj(
+                #     [self.custom_forward(strategy.model, x, task)
+                #      for task in range(len(offsets_tensor))])
+
+                centroids = torch.cat([self.scaler(c, task)
+                                       for task, c in
+                                       enumerate(chain(self.tasks_centroids,
+                                                       [
+                                                           self.current_centroids]))],
+                                      0)
+
+                loss = self._loss_f(e, y, centroids)
+                loss = loss.view(-1).mean()
+
+                strategy.loss += loss * self.proj_w
+
+            if self.penalty_weight > 0:
                 for i in range(len(self.tasks_centroids)):
                     p_e = self.custom_forward(self.past_model, x, i,
                                               force_eval=True)
@@ -1938,558 +2463,9 @@ class DropContinualMetricLearningPlugin(StrategyPlugin):
                     _dist = torch.norm(p_e - c_e, p=2, dim=1)
                     dist += _dist.mean()
 
-            dist = dist / len(self.tasks_centroids)
+                dist = dist / len(self.tasks_centroids)
 
-            dist = dist * self.penalty_weight
-            tot_sim = tot_sim * self.sit_penalty_wights
-
-            if strategy.clock.train_epoch_iterations % 50 == 0:
-                print(strategy.loss, dist, tot_sim)
+                dist = dist * self.penalty_weight
+                tot_sim = tot_sim * self.sit_penalty_wights
 
             strategy.loss += (dist + tot_sim)
-
-            # self.past_model = deepcopy(strategy.model)
-
-# class _ContinualMetricLearningPlugin(StrategyPlugin):
-#     def __init__(self, penalty_weight: float, sit=False,
-#                  sit_penalty_wights: float = 0.1):
-#
-#         super().__init__()
-#
-#         self.past_model = None
-#         self.penalty_weight = penalty_weight
-#         self.sit_penalty_wights = sit_penalty_wights
-#
-#         self.similarity = 'euclidean'
-#         self.tasks_centroids = []
-#         self.sit = sit
-#         self.tasks_forest = {}
-#
-#     def calculate_centroids(self, strategy: BaseStrategy, dataset):
-#
-#         # model = strategy.model
-#         device = strategy.device
-#         dataloader = DataLoader(dataset,
-#                                 batch_size=strategy.train_mb_size)
-#         # batch_size=len(dataset))
-#
-#         classes = set(dataset.targets)
-#
-#         embs = defaultdict(list)
-#
-#         # classes = set()
-#         # for x, y, tid in data:
-#         #     x, y, _ = d
-#         #     emb, _ = strategy.model.forward_single_task(x, t, True)
-#         #     classes.update(y.detach().cpu().tolist())
-#
-#         classes = sorted(classes)
-#
-#         for d in dataloader:
-#             x, y, tid = d
-#             x = x.to(device)
-#             # embeddings = strategy.model.forward_single_task(x, tid, False)
-#
-#             embeddings = strategy.model(x, tid)
-#             if self.sit and len(self.tasks_centroids) > 0:
-#                 for i in range(len(self.tasks_centroids)):
-#                     embeddings += strategy.model(x, i)
-#
-#             for c in classes:
-#                 embs[c].append(embeddings[y == c])
-#
-#         embs = {c: torch.cat(e, 0) for c, e in embs.items()}
-#
-#         centroids = torch.stack([torch.mean(embs[c], 0) for c in classes], 0)
-#
-#         # if self.sit and len(self.tasks_centroids) > 0:
-#         #     centroids_means = torch.cat(self.tasks_centroids, 0).sum(0,
-#         #                                                              keepdims=True)
-#         #     centroids += centroids_means
-#
-#         return centroids
-#
-#     def calculate_similarity(self, x, y, similarity: str = None, sigma=1):
-#         if similarity is None:
-#             similarity = self.similarity
-#
-#         n = x.size(0)
-#         m = y.size(0)
-#         d = x.size(1)
-#         if d != y.size(1):
-#             raise Exception
-#
-#         a = x.unsqueeze(1).expand(n, m, d)
-#         b = y.unsqueeze(0).expand(n, m, d)
-#
-#         if similarity == 'euclidean':
-#             dist = -torch.pow(a - b, 2).sum(2).sqrt()
-#         elif similarity == 'rbf':
-#             dist = -torch.pow(a - b, 2).sum(2).sqrt()
-#             dist = dist / (2 * sigma ** 2)
-#             dist = torch.exp(dist)
-#         elif similarity == 'cosine':
-#             sim = cosine_similarity(a, b, -1)
-#             dist = (sim + 1) / 2
-#         else:
-#             assert False
-#
-#         return dist
-#
-#     def loss(self, strategy, **kwargs):
-#         if not strategy.model.training:
-#             return -1
-#
-#         centroids = self.calculate_centroids(strategy,
-#                                              strategy.experience.dev_dataset)
-#
-#         mb_output, y, x = strategy.mb_output, strategy.mb_y, strategy.mb_x
-#
-#         # if self.sit and len(self.tasks_centroids) > 0:
-#         #     for i in range(len(self.tasks_centroids)):
-#         #         mb_output += strategy.model(x, i)
-#
-#         sim = self.calculate_similarity(mb_output, centroids)
-#
-#         log_p_y = log_softmax(sim, dim=1)
-#         loss_val = -log_p_y.gather(1, y.unsqueeze(-1))
-#         loss_val = loss_val.view(-1).mean()
-#
-#         return loss_val
-#
-#     @torch.no_grad()
-#     def after_training_exp(self, strategy, **kwargs):
-#         tid = strategy.experience.current_experience
-#
-#         centroids = self.calculate_centroids(strategy,
-#                                              strategy.experience.
-#                                              dev_dataset)
-#
-#         self.tasks_centroids.append(centroids)
-#
-#         self.past_model = deepcopy(strategy.model)
-#         self.past_model.eval()
-#
-#         if isinstance(strategy.model, BatchNormModelWrap):
-#             for name, module in strategy.model.named_modules():
-#                 if isinstance(module, TaskIncrementalBatchNorm2D):
-#                     module.freeze_eval(tid)
-#                     for p in module.parameters():
-#                         p.requires_grad_(False)
-#
-#         # for param in strategy.model.classifier.classifiers[str(tid)].parameters():
-#         #     param.requires_grad_(False)
-#
-#         if self.sit:
-#             dataloader = DataLoader(strategy.experience.dev_dataset,
-#                                     batch_size=strategy.train_mb_size)
-#
-#             embeddings = []
-#             for x, _, t in dataloader:
-#                 x = x.to(strategy.device)
-#
-#                 # e = strategy.model.forward_single_task(x, tid, False)
-#                 e = self.past_model(x, t)
-#
-#                 if self.sit and len(self.tasks_centroids) > 0:
-#                     for i in range(tid):
-#                         e += self.past_model(x, i)
-#
-#                 embeddings.extend(e.cpu().tolist())
-#
-#             embeddings = np.asarray(embeddings)
-#
-#             ln = len(embeddings)
-#             nn = 50 if ln > 100 else ln // 3
-#
-#             # f = LocalOutlierFactor(novelty=True,
-#             #                        n_neighbors=50,
-#             #                        contamination=0.1)
-#
-#             # f = OneClassSVM(nu=0.1, kernel='linear')
-#
-#             f = IsolationForest(n_estimators=500,
-#                                 n_jobs=-1,
-#                                 contamination=0.1,
-#                                 max_samples=0.7)
-#
-#             f.fit(embeddings)
-#
-#             self.tasks_forest[tid] = f
-#
-#     @torch.no_grad()
-#     def calculate_classes(self, strategy, embeddings):
-#
-#         mode = strategy.model.training
-#         strategy.model.eval()
-#
-#         correct_task = strategy.experience.current_experience
-#
-#         if False and self.sit and len(self.tasks_centroids) > 1:
-#
-#             correct_embs = None
-#             ood_predictions = []
-#
-#             ssims = []
-#             _ssims = []
-#             predictions = []
-#
-#             for ti, forest in self.tasks_forest.items():
-#                 e = strategy.model(strategy.mb_x, ti)
-#
-#                 if self.sit and len(self.tasks_centroids) > 0:
-#                     for i in range(ti):
-#                         e += strategy.model(strategy.mb_x, i)
-#
-#                 sim = self.calculate_similarity(e, self.tasks_centroids[ti])
-#                 _ssims.append(sim.cpu().numpy())
-#
-#                 sim = softmax(sim, -1).cpu().numpy()
-#
-#                 ssims.append(sim.max(1))
-#                 predictions.append(sim.argmax(1))
-#
-#                 if ti == correct_task:
-#                     correct_embs = e
-#
-#                 e = e.cpu().numpy()
-#
-#                 forest_prediction = forest.decision_function(e)
-#                 # forest_prediction = forest.score_samples(e)
-#
-#                 # mn, std = forest_prediction.mean(), forest_prediction.std()
-#                 #
-#                 # nv = forest_prediction - mn
-#                 # nv = nv / (2**0.5 * std)
-#                 # forest_prediction = erf(nv)
-#
-#                 # forest_prediction = np.maximum(0, nv)
-#
-#                 ood_predictions.append(forest_prediction)
-#
-#             ood_predictions = np.asarray(ood_predictions)
-#             # ood_predictions = ood_predictions + 0.5
-#
-#             ssims = np.asarray(ssims)
-#             _ssims = np.asarray(_ssims)
-#             predictions = np.asarray(predictions)
-#
-#             # mn, std = predictions.mean(1, keepdims=True), \
-#             #           predictions.std(1, keepdims=True)
-#             #
-#             # nv = predictions - mn
-#             # nv = nv / ((2 ** 0.5) * std)
-#             # predictions = erf(nv)
-#
-#             predicted_tasks = np.argmax(ood_predictions, 0)
-#             # predicted_tasks = np.argmax(ssims, 0)
-#
-#             correct_prediction_mask = predicted_tasks == correct_task
-#
-#             pred = correct_prediction_mask * predictions[correct_task] + (
-#                     1 - correct_prediction_mask) * -1
-#
-#             pred = torch.tensor(pred,
-#                                 device=strategy.device,
-#                                 dtype=torch.long)
-#
-#             # correct_prediction_mask = torch.tensor(correct_prediction_mask,
-#             #                                        device=strategy.device,
-#             #                                        dtype=torch.long)
-#             #
-#             # centroids = self.tasks_centroids[correct_task]
-#             # sim = self.calculate_similarity(correct_embs, centroids)
-#             # sm = softmax(sim, -1)
-#             # sm = torch.argmax(sm, 1)
-#             #
-#             # pred = correct_prediction_mask * sm + (
-#             #         1 - correct_prediction_mask) * -1
-#
-#         else:
-#
-#             sim = self.calculate_similarity(embeddings,
-#                                             self.tasks_centroids[correct_task])
-#             sm = softmax(sim, -1)
-#             pred = torch.argmax(sm, 1)
-#
-#         strategy.model.train(mode)
-#
-#         return pred
-#
-#     def before_backward(self, strategy, **kwargs):
-#         if strategy.clock.train_exp_counter > 0:
-#
-#             # strategy.model.eval()
-#
-#             x, _, tdi = strategy.mbatch
-#             dist = 0
-#             tot_sim = 0
-#
-#             # # if self.sit:
-#             # dataloader = DataLoader(strategy.experience.dev_dataset,
-#             #                         batch_size=len(strategy.experience.dev_dataset),
-#             #                         shuffle=True)
-#             #
-#             # dev_x, _, dev_t = next(iter(dataloader))
-#             #
-#             # dev_x, dev_t = dev_x.to(strategy.device), dev_t.to(
-#             #     strategy.device)
-#
-#             for i in range(len(self.tasks_centroids)):
-#                 p_e = self.past_model(x, i)
-#                 c_e = strategy.model(x, i)
-#
-#                 # if False:
-#                 #     p_e = normalize(p_e)
-#                 #     c_e = normalize(c_e)
-#
-#                 _dist = torch.norm(p_e - c_e, p=2, dim=1)
-#                 dist += _dist.mean()
-#
-#                 if self.sit:
-#                     e = strategy.model(x, i)
-#
-#                     if self.sit and len(self.tasks_centroids) > 0:
-#                         for j in range(i):
-#                             e += strategy.model(x, j)
-#
-#                     d = -self.calculate_similarity(e, self.tasks_centroids[i])
-#
-#                     sim = 1 / (1 + d)
-#
-#                     tot_sim += sim.mean(1).mean(0)
-#
-#             # tot_sim = tot_sim / len(self.tasks_centroids)
-#             # dist = dist / len(self.tasks_centroids)
-#
-#             dist = dist * self.penalty_weight
-#             tot_sim = tot_sim * self.sit_penalty_wights
-#
-#             if strategy.clock.train_exp_counter > 0:
-#                 print(tot_sim, dist, strategy.loss)
-#
-#             strategy.loss += dist + tot_sim
-#
-#             # strategy.model.train()
-
-# class ClassIncrementalContinualMetricLearningPlugin(StrategyPlugin):
-#     def __init__(self, penalty_weight: float, sit=False):
-#         super().__init__()
-#
-#         self.past_model = None
-#         self.penalty_weight = penalty_weight
-#         self.similarity = 'euclidean'
-#
-#         self.tasks_centroids = []
-#         self.concatenated_centroids = None
-#         self.support_sets = []
-#
-#         self.sit = sit
-#         self.tasks_forest = {}
-#
-#     @staticmethod
-#     def calculate_centroids(strategy: BaseStrategy, dataset):
-#
-#         training = strategy.model.training
-#         strategy.model.eval()
-#
-#         device = strategy.device
-#         dataloader = DataLoader(dataset,
-#                                 batch_size=strategy.train_mb_size)
-#
-#         classes = set(dataset.targets)
-#
-#         # mask = torch.zeros(max(classes) + 1, dtype=torch.float, device=device)
-#         # for c in classes:
-#         #     mask[c] = 1
-#
-#         embs = defaultdict(list)
-#
-#         classes = sorted(classes)
-#
-#         for d in dataloader:
-#             x, y, tid = d
-#             x = x.to(device)
-#             embeddings = strategy.model(x, tid)
-#             for c in classes:
-#                 embs[c].append(embeddings[y == c])
-#
-#         embs = {c: torch.cat(e, 0) for c, e in embs.items()}
-#         # zeros = torch.zeros_like(embs[classes[0]][0])
-#         # centroids = torch.stack([torch.mean(embs[c], 0)
-#         #                          if c in classes else zeros
-#         #                          for c in range(max(classes))], 0)
-#         centroids = torch.stack([torch.mean(embs[c], 0)
-#                                  for c in classes], 0)
-#
-#         strategy.model.train(training)
-#
-#         return centroids
-#
-#     def calculate_similarity(self, x, y, similarity: str = None, sigma=1):
-#         if similarity is None:
-#             similarity = self.similarity
-#
-#         n = x.size(0)
-#         m = y.size(0)
-#         d = x.size(1)
-#         if d != y.size(1):
-#             raise Exception
-#
-#         a = x.unsqueeze(1).expand(n, m, d)
-#         b = y.unsqueeze(0).expand(n, m, d)
-#
-#         if similarity == 'euclidean':
-#             dist = -torch.pow(a - b, 2).sum(2).sqrt()
-#         elif similarity == 'rbf':
-#             dist = -torch.pow(a - b, 2).sum(2).sqrt()
-#             dist = dist / (2 * sigma ** 2)
-#             dist = torch.exp(dist)
-#         elif similarity == 'cosine':
-#             dist = cosine_similarity(a, b, -1) ** 2
-#         else:
-#             assert False
-#
-#         return dist
-#
-#     def loss(self, strategy, **kwargs):
-#
-#         if not strategy.model.training:
-#             return 0
-#
-#         centroids = self.calculate_centroids(strategy,
-#                                              strategy.experience.dev_dataset)
-#
-#         if len(self.tasks_centroids) > 0:
-#             centroids = torch.cat((self.concatenated_centroids, centroids), 0)
-#
-#         mb_output, y = strategy.mb_output, strategy.mb_y
-#
-#         sim = self.calculate_similarity(mb_output, centroids)
-#
-#         log_p_y = log_softmax(sim, dim=1)
-#         loss_val = -log_p_y.gather(1, y.unsqueeze(-1))
-#         loss_val = loss_val.view(-1).mean()
-#
-#         return loss_val
-#
-#     @torch.no_grad()
-#     def after_training_exp(self, strategy, **kwargs):
-#         tid = strategy.experience.current_experience
-#
-#         centroids = self.calculate_centroids(strategy,
-#                                              strategy.experience.
-#                                              dev_dataset)
-#
-#         self.tasks_centroids.append(centroids)
-#         self.support_sets.append(strategy.experience.dev_dataset)
-#
-#         self.concatenated_centroids = torch.cat(self.tasks_centroids, 0)
-#
-#     @torch.no_grad()
-#     def calculate_classes(self, strategy, embeddings):
-#
-#         centroids = torch.cat(self.tasks_centroids, 0)
-#         if len(self.tasks_centroids) > 0:
-#             centroids = torch.cat((self.concatenated_centroids, centroids), 0)
-#
-#         sim = self.calculate_similarity(embeddings, centroids)
-#         sm = softmax(sim, -1)
-#         pred = torch.argmax(sm, 1)
-#
-#         return pred
-#
-#     def before_update(self, strategy, **kwargs):
-#         if strategy.clock.train_exp_counter > 0:
-#
-#             # strategy.loss = 0
-#             # strategy.optimizer.zero_grad()
-#
-#             past_model = deepcopy(strategy.model)
-#             past_model.zero_grad()
-#
-#             strategy.optimizer.step()
-#             strategy.optimizer.zero_grad()
-#
-#             l = strategy.loss
-#
-#             # l = strategy._criterion(
-#             #     past_model.model(strategy.mb_x, strategy.mb_task_id),
-#             #     strategy.mb_y)
-#
-#             # strategy.model.eval()
-#
-#             # a = strategy.model.model.backbone.model.bn1.bns['0'].weight
-#             # b = self.past_model.model.backbone.model.bn1.bns['0'].weight
-#
-#             # x, _, tdi = strategy.mbatch
-#             dist = 0
-#             # sim = 0
-#
-#             # ce = strategy.model.forward(x, strategy.clock.train_exp_counter)
-#             for tid, d in enumerate(self.support_sets):
-#                 nc = self.calculate_centroids(strategy, d)
-#                 # nc = nc + (torch.randn_like(nc) * 0.1)
-#                 # for c, _c in zip(self.tasks_centroids, nc):
-#                 c = self.tasks_centroids[tid]
-#                 _dist = torch.norm(nc - c, p=2, dim=1)
-#                 dist += _dist.sum()
-#
-#             # dist = dist / self.concatenated_centroids.shape[0]
-#
-#             # for i in range(len(self.tasks_centroids)):
-#             #     p_e = self.past_model.forward(x, i)
-#             #     c_e = strategy.model.forward(x, i)
-#             #
-#             #     if False:
-#             #         p_e = normalize(p_e)
-#             #         c_e = normalize(c_e)
-#             #
-#             #     _dist = torch.norm(p_e - c_e, p=2, dim=1)
-#             #     dist += _dist.mean()
-#             #
-#             #     # if self.sit and i != strategy.clock.train_exp_counter:
-#             #     #     pe = strategy.model.forward(x, i)
-#             #     #
-#             #     #     sim += (1 / (1 + torch.norm(ce - pe, p=2, dim=1))).mean()
-#             #     #     # print(sim)
-#
-#             dist = dist * self.penalty_weight
-#
-#             # print(dist, strategy.loss)
-#
-#             # strategy.loss += dist
-#
-#             l = l + dist
-#
-#             l.backward()
-#
-#             grads = {name: p.grad
-#                      for name, p in strategy.model.named_parameters()}
-#
-#             strategy.model.load_state_dict(self.past_model.state_dict())
-#
-#             for name, p in strategy.model.named_parameters():
-#                 p.grad = grads[name]
-#
-#             # strategy.loss.backward()
-#             # strategy.optimizer.step()
-#
-#             # strategy.model.train()
-#
-#             # tdi = strategy.experience.current_experience
-#             # if self.sit:
-#             #     tot_sim = 0
-#             #     p_e = strategy.model.forward_single_task(x, tdi)
-#             #
-#             #     for i in range(tdi):
-#             #         # for j in range(i + 1, len(self.tasks_centroids)):
-#             #         #     p_e = strategy.model.forward_single_task(x, i)
-#             #         c_e = strategy.model.forward_single_task(x, i)
-#             #
-#             #         _dist = torch.norm(p_e - c_e, p=2, dim=1)
-#             #         sim = 1 / (1 + _dist)
-#             #
-#             #         tot_sim += sim.mean()
-#             #
-#             #     strategy.loss += tot_sim * self.penalty_weight
