@@ -2,7 +2,7 @@ from typing import Optional, Any
 
 import avalanche
 
-from avalanche.benchmarks import nc_benchmark
+from avalanche.benchmarks import nc_benchmark, NCScenario
 
 from avalanche.benchmarks.classic.ccifar10 import _get_cifar10_dataset, \
     _default_cifar10_train_transform, _default_cifar10_eval_transform
@@ -13,8 +13,11 @@ from avalanche.benchmarks.classic.ccifar100 import _get_cifar100_dataset, \
 from avalanche.benchmarks.classic.ctiny_imagenet import \
     _get_tiny_imagenet_dataset
 
-from avalanche.benchmarks.classic.ctiny_imagenet import _default_train_transform as _default_tiny_imagenet_train_transform
-from avalanche.benchmarks.classic.ctiny_imagenet import _default_eval_transform as _default_tiny_imagenet_eval_transform
+from avalanche.benchmarks.classic.ctiny_imagenet import \
+    _default_train_transform as _default_tiny_imagenet_train_transform
+from avalanche.benchmarks.classic.ctiny_imagenet import \
+    _default_eval_transform as _default_tiny_imagenet_eval_transform
+from avalanche.benchmarks.utils import AvalancheDataset, AvalancheDatasetType
 
 import utils
 
@@ -48,7 +51,6 @@ def get_scenario(train_dataset,
                  train_transform: Optional[Any] = None,
                  eval_transform: Optional[Any] = None,
                  seed: Optional[int] = None):
-
     if return_task_id:
         return nc_benchmark(
             train_dataset=train_dataset,
@@ -99,7 +101,7 @@ def get_dataset_by_name(name: str, root: str = None):
 def get_dataset_nc_scenario(name: str,
                             scenario: str,
                             n_tasks: int,
-                            return_task_id: bool,
+                            til: bool,
                             shuffle: bool = True,
                             seed: Optional[int] = None,
                             force_sit=False):
@@ -125,7 +127,40 @@ def get_dataset_nc_scenario(name: str,
 
     train_split, test_split, train_t, test_t = r
 
-    if return_task_id and not force_sit:
+    transform_groups = dict(
+        train=(train_t, None),
+        eval=(test_t, None)
+    )
+
+    # Datasets should be instances of AvalancheDataset
+    # train_dataset = AvalancheDataset(
+    #     train_split,
+    #     transform_groups=transform_groups,
+    #     initial_transform_group='train',
+    #     dataset_type=AvalancheDatasetType.CLASSIFICATION)
+    #
+    # test_dataset = AvalancheDataset(
+    #     test_split,
+    #     transform_groups=transform_groups,
+    #     initial_transform_group='eval',
+    #     dataset_type=AvalancheDatasetType.CLASSIFICATION)
+    #
+    # tasks = NCScenario(train_dataset=train_dataset,
+    #                    test_dataset=test_dataset,
+    #                    n_experiences=n_tasks,
+    #                    task_labels=True,
+    #                    shuffle=shuffle,
+    #                    seed=seed,
+    #                    fixed_class_order=None,
+    #                    # per_exp_classes,
+    #                    # class_ids_from_zero_from_first_exp,
+    #                    class_ids_from_zero_in_each_exp=cil,
+    #                    # reproducibility_data
+    #                    )
+    #
+    # return tasks
+
+    if til and not force_sit:
         return nc_benchmark(
             train_dataset=train_split,
             test_dataset=test_split,
@@ -142,7 +177,7 @@ def get_dataset_nc_scenario(name: str,
             train_dataset=train_split,
             test_dataset=test_split,
             n_experiences=n_tasks,
-            task_labels=return_task_id,
+            task_labels=til,
             seed=seed,
             class_ids_from_zero_from_first_exp=True,
             fixed_class_order=None,

@@ -29,9 +29,9 @@ er)
 ;;
 cml)
 #  python main.py +scenario=class_incremental_cifar100 +model=resnet20 +training=cifar100  +method=cml_1 +method.proj_w=10 optimizer=sgd  training.device="$DEVICE" hydra.run.dir='./results/ci_cifar100/resnet20/cml/cml_1_proj10' experiment.experiments=1
-  python main.py +scenario=class_incremental_cifar100 +model=resnet20 +training=cifar100 +method=cml_01 +method.proj_w=1000 optimizer=sgd  training.device="$DEVICE" hydra.run.dir='./results/ci_cifar100/resnet20/cml_ablation/cml_01_proj1000' experiment.experiments=1
-  python main.py +scenario=class_incremental_cifar100 +model=resnet20 +training=cifar100 +method=cml_01 +method.proj_w=100 optimizer=sgd  training.device="$DEVICE" hydra.run.dir='./results/ci_cifar100/resnet20/cml_ablation/cml_01_proj100' experiment.experiments=1
-  python main.py +scenario=class_incremental_cifar100 +model=resnet20 +training=cifar100 +method=cml_01 +method.proj_w=10 optimizer=sgd  training.device="$DEVICE" hydra.run.dir='./results/ci_cifar100/resnet20/cml_ablation/cml_01_proj10' experiment.experiments=1
+#  python main.py +scenario=class_incremental_cifar100 +model=resnet20 +training=cifar100 +method=cml_01 +method.proj_w=1000 optimizer=sgd  training.device="$DEVICE" hydra.run.dir='./results/ci_cifar100/resnet20/cml_ablation/cml_01_proj1000' experiment.experiments=1
+#  python main.py +scenario=class_incremental_cifar100 +model=resnet20 +training=cifar100 +method=cml_01 +method.proj_w=100 optimizer=sgd  training.device="$DEVICE" hydra.run.dir='./results/ci_cifar100/resnet20/cml_ablation/cml_01_proj100' experiment.experiments=1
+  python main.py +scenario=class_incremental_cifar100 +model=resnet20 +training=cifar100 +method=cml_01 +method.proj_w=1 optimizer=sgd  training.device="$DEVICE" hydra.run.dir='./results/ci_cifar100/resnet20/cml_ablation/cml_01_proj1'
 #  python main.py +scenario=class_incremental_cifar100 +model=resnet20 +training=cifar100 training.epochs=40 +method=cml_1 optimizer=sgd  training.device="$DEVICE" hydra.run.dir='./results/ci_cifar100/resnet20/cml/cml_1'
 #  python main.py +scenario=class_incremental_cifar100 +model=resnet20 +training=cifar100 +method.proj_w=10 training.epochs=10 +method=cml_01 optimizer=sgd  +method.sit_memory_size=1000 training.device="$DEVICE" hydra.run.dir='./results/ci_cifar100/resnet20/cml/cml_10' experiment.experiments=1
 ;;

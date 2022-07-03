@@ -1,3 +1,6 @@
 name: cml
 penalty_weight: 1
 save_name: cml_1
+memory_type: random
+memory_parameters:
+  samples_per_class: 50

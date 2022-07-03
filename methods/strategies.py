@@ -1,6 +1,7 @@
 from typing import Optional, List
 
 import numpy as np
+from avalanche.benchmarks.utils.data_loader import TaskBalancedDataLoader
 from avalanche.training import BaseStrategy
 from avalanche.training.plugins import StrategyPlugin, EvaluationPlugin
 from avalanche.training.plugins.evaluation import default_logger
@@ -9,9 +10,8 @@ from torch.nn.modules.batchnorm import _BatchNorm
 from torch.optim import Optimizer
 from torch.utils.data import DataLoader
 
-from methods.plugins.cml import ContinualMetricLearningPlugin, \
-    BatchNormModelWrap, DropContinualMetricLearningPlugin, \
-    ClassIncrementalBatchNormModelWrap
+from methods.plugins.cml import CentroidsMatching
+from methods.plugins.cml_utils import BatchNormModelWrap
 from methods.plugins.er import EmbeddingRegularizationPlugin
 from methods.plugins.hal import AnchorLearningPlugin
 from methods.plugins.ewc import EWCCustomPlugin
@@ -84,45 +84,34 @@ class EmbeddingRegularization(BaseStrategy):
 
 class ContinualMetricLearning(BaseStrategy):
 
-    def __init__(self, model: CombinedModel, dev_split_size: float,
-                 optimizer: Optimizer, criterion, penalty_weight: float,
-                 train_mb_size: int = 1, train_epochs: int = 1, proj_w=1,
-                 eval_mb_size: int = None, device=None,
+    def __init__(self,
+                 model: CombinedModel,
+                 dev_split_size: float,
+                 optimizer: Optimizer,
+                 criterion, penalty_weight: float,
+                 train_mb_size: int = 1,
+                 train_epochs: int = 1, proj_w=1,
+                 eval_mb_size: int = None,
+                 device=None,
+                 memory_parameters=None,
                  sit: bool = False, num_experiences: int = 20,
-                 sit_memory_size: int = 200,
+                 sit_memory_size: int = 500,
+                 merging_strategy: str = 'scale_translate',
+                 memory_type: str = 'random',
                  plugins: Optional[List[StrategyPlugin]] = None,
                  evaluator: EvaluationPlugin = default_logger, eval_every=-1):
 
-        # if sit:
-        #     rp = ClassIncrementalContinualMetricLearningPlugin(penalty_weight, sit)
-        # else:
+        if not sit and \
+                any(isinstance(module, _BatchNorm) for module in
+                    model.modules()):
+            model = BatchNormModelWrap(model)
 
-        # if any(isinstance(module, _BatchNorm) for module in
-        #        model.modules()) and not sit:
-        #     # for name, module in model.named_modules():
-        #     #     if isinstance(module, _BatchNorm):
-        #     model = BatchNormModelWrap(model)
-        #     # break
-
-        if any(isinstance(module, _BatchNorm) for module in
-               model.modules()):
-            # for name, module in model.named_modules():
-            #     if isinstance(module, _BatchNorm):
-            if sit:
-                pass
-                # model = ClassIncrementalBatchNormModelWrap(model)
-            else:
-                model = BatchNormModelWrap(model)
-            # break
-
-        # rp = ContinualMetricLearningPlugin(penalty_weight, sit,
-        #                                    num_experiences=num_experiences,
-        #                                    sit_memory_size=sit_memory_size)
-
-        rp = DropContinualMetricLearningPlugin(penalty_weight, sit,
-                                               proj_w=proj_w,
-                                               num_experiences=num_experiences,
-                                               sit_memory_size=sit_memory_size)
+        rp = CentroidsMatching(penalty_weight, sit,
+                               proj_w=proj_w,
+                               memory_type=memory_type,
+                               memory_parameters=memory_parameters,
+                               merging_strategy=merging_strategy,
+                               sit_memory_size=sit_memory_size)
 
         self.rp = rp
 
@@ -142,12 +131,6 @@ class ContinualMetricLearning(BaseStrategy):
             eval_mb_size=eval_mb_size, device=device,
             plugins=plugins,
             evaluator=evaluator, eval_every=eval_every)
-
-    # def eval_dataset_adaptation(self, **kwargs):
-    #     """ Initialize `self.adapted_dataset`. """
-    #     self.train_dataset_adaptation()
-    # self.adapted_dataset = self.experience.dataset
-    # self.adapted_dataset = self.adapted_dataset.eval()
 
     def train_dataset_adaptation(self, **kwargs):
         """ Initialize `self.adapted_dataset`. """
@@ -190,34 +173,24 @@ class ContinualMetricLearning(BaseStrategy):
         self.adapted_dataset = self.experience.dataset
         # self.adapted_dataset = self.adapted_dataset.train()
 
-    # def make_train_dataloader(self, num_workers=0, shuffle=True,
-    #                           pin_memory=True, **kwargs):
-    #
-    #     exp_n = self.experience.current_experience
-    #     if exp_n not in self.dev_indexes:
-    #         train = self.experience.dataset
-    #         idx = np.arange(len(train))
-    #         np.random.shuffle(idx)
-    #         dev_i = int(len(idx) * self.dev_split_size)
-    #
-    #         dev_idx = idx[:dev_i]
-    #         train_idx = idx[dev_i:]
-    #         self.dev_indexes[exp_n] = (train_idx, dev_idx)
-    #     else:
-    #         train_idx, dev_idx = self.dev_indexes[exp_n]
-    #
-    #     self.dataloader = DataLoader(Subset(self.adapted_dataset, train_idx),
-    #                                  num_workers=num_workers,
-    #                                  batch_size=self.train_mb_size,
-    #                                  shuffle=shuffle,
-    #                                  pin_memory=pin_memory)
-    #
-    #     self.dev_dataloader = DataLoader(Subset(self.adapted_dataset.eval(),
-    #                                             dev_idx),
-    #                                      num_workers=num_workers,
-    #                                      batch_size=self.train_mb_size,
-    #                                      shuffle=shuffle,
-    #                                      pin_memory=pin_memory)
+    def make_train_dataloader(self, num_workers=0, shuffle=True,
+                              pin_memory=True, **kwargs):
+
+        # super(ContinualMetricLearning, self).make_train_dataloader(
+        #     num_workers=num_workers,
+        #     shuffle=shuffle,
+        #     pin_memory=pin_memory)
+
+        # self.dataloader = TaskBalancedDataLoader(
+        #     self.adapted_dataset,
+        #     batch_size=self.train_mb_size,
+
+        # )
+        self.dataloader = DataLoader(
+            self.adapted_dataset,
+            num_workers=num_workers,
+            batch_size=self.eval_mb_size,
+            pin_memory=pin_memory)
 
     def criterion(self):
         """ Loss function. """
@@ -229,48 +202,6 @@ class ContinualMetricLearning(BaseStrategy):
         if not self.model.training:
             res = self.rp.calculate_classes(self, res)
         return res
-
-
-class AnchorLearning(BaseStrategy):
-    def __init__(self,
-                 feature_extractor: nn.Module,
-                 classifier: nn.Module,
-                 optimizer: Optimizer, criterion,
-                 ring_size: int,
-                 lamb: float,
-                 beta: float,
-                 alpha: float,
-                 embedding_strength: float,
-                 k: int = 100,
-                 train_mb_size: int = 1, train_epochs: int = 1,
-                 eval_mb_size: int = None, device=None,
-                 plugins: Optional[List[StrategyPlugin]] = None,
-                 evaluator: EvaluationPlugin = default_logger, eval_every=-1,
-                 **kwargs):
-
-        model = CombinedModel(feature_extractor,
-                              classifier=classifier)
-
-        rp = AnchorLearningPlugin(ring_size=ring_size,
-                                  regularization=lamb,
-                                  decay_rate=beta,
-                                  lr=alpha,
-                                  embedding_strength=embedding_strength,
-                                  k=k)
-        self.rp = rp
-
-        if plugins is None:
-            plugins = [rp]
-        else:
-            plugins.append(rp)
-
-        super().__init__(
-            model, optimizer, criterion,
-            train_mb_size=train_mb_size,
-            train_epochs=train_epochs,
-            eval_mb_size=eval_mb_size, device=device,
-            plugins=plugins,
-            evaluator=evaluator, eval_every=eval_every)
 
 
 class CustomEWC(BaseStrategy):
@@ -319,7 +250,8 @@ class CustomEWC(BaseStrategy):
             `eval` is called every `eval_every` epochs and at the end of the
             learning experience.
         """
-        ewc = EWCCustomPlugin(ewc_lambda, mode, decay_factor, keep_importance_data)
+        ewc = EWCCustomPlugin(ewc_lambda, mode, decay_factor,
+                              keep_importance_data)
         if plugins is None:
             plugins = [ewc]
         else:

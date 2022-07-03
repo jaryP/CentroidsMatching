@@ -8,8 +8,7 @@ from torch import nn
 import torch.nn.functional as F
 
 from models import resnet20, resnet32, custom_vgg
-from models.utils import CombinedModel, CustomMultiHeadClassifier, \
-    DropoutWrapper
+from models.utils import CombinedModel, CustomMultiHeadClassifier
 
 
 def get_backbone(name: str, channels: int = 3):
@@ -139,10 +138,13 @@ def get_cl_model(model_name: str,
         class Wrapper(nn.Module):
             def __init__(self):
                 super().__init__()
-                self.model = nn.Sequential(nn.ReLU(),
-                             nn.Linear(i, i),
-                             nn.ReLU(),
-                             nn.Linear(i, o))
+                self.model = nn.Sequential(
+                    # nn.Dropout(0.5),
+                    nn.Linear(i, i),
+                    nn.ReLU(),
+                    nn.Linear(i, o),
+                    # nn.Dropout(0.2)
+                )
 
             def forward(self, x, task_labels=None, **kwargs):
                 return self.model(x)
@@ -162,11 +164,6 @@ def get_cl_model(model_name: str,
         #                      nn.Linear(i, i),
         #                      nn.ReLU(),
         #                      nn.Linear(i, o))
-
-    def drop_heads_generator(i, o):
-        return DropoutWrapper(i, o)
-
-    p = None
 
     if is_stream or method_name == 'icarl':
         classifier = IncrementalClassifier(size)

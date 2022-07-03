@@ -3,8 +3,7 @@ from avalanche.training import Cumulative, GEM, Replay, Naive, JointTraining, \
 from avalanche.training.plugins import GEMPlugin, ReplayPlugin
 
 from methods.strategies import EmbeddingRegularization, \
-    ContinualMetricLearning, \
-    AnchorLearning, CustomEWC
+    ContinualMetricLearning, CustomEWC
 
 from models.utils import CombinedModel
 
@@ -107,8 +106,10 @@ def get_trainer(name, tasks, sit: bool = False, **kwargs):
                                            get('penalty_weight', 1),
                                            sit_memory_size=kwargs.
                                            get('sit_memory_size', 500),
-                                           proj_w=kwargs.
-                                           get('proj_w', 1),
+                                           proj_w=kwargs.get('proj_w', 1),
+                                           merging_strategy= kwargs.get('merging_strategy', 'scale_translate'),
+                                           memory_parameters=kwargs.get('memory_parameters', {}),
+                                           memory_type=kwargs.get('memory_type', 'random'),
                                            num_experiences=num_experiences,
                                            optimizer=optimizer,
                                            criterion=criterion,
@@ -130,28 +131,6 @@ def get_trainer(name, tasks, sit: bool = False, **kwargs):
                          train_epochs=train_epochs,
                          device=device,
                          evaluator=evaluator)
-        elif name == 'hal':
-            return AnchorLearning(feature_extractor=model.feature_extractor,
-                                  classifier=model.classifier,
-                                  ring_size=kwargs.
-                                  get('ring_size', 3),
-                                  lamb=kwargs.
-                                  get('lamb', 1),
-                                  beta=kwargs.
-                                  get('beta', 0.5),
-                                  alpha=kwargs.
-                                  get('alpha', 1e-1),
-                                  k=kwargs.
-                                  get('k', 100),
-                                  embedding_strength=kwargs.
-                                  get('embedding_strength', 0.1),
-                                  optimizer=optimizer,
-                                  criterion=criterion,
-                                  train_mb_size=train_mb_size,
-                                  train_epochs=train_epochs,
-                                  device=device,
-                                  sit=sit,
-                                  evaluator=evaluator)
         else:
             assert False, f'CL method not found {name.lower()}'
 

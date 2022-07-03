@@ -6,10 +6,6 @@ from avalanche.benchmarks.utils.dataset_utils import ConstantSequence
 from avalanche.models import DynamicModule, MultiTaskModule
 from avalanche.models.helper_method import MultiTaskDecorator
 from torch import nn
-from torch.nn import Parameter, Dropout
-
-from methods.plugins.cml import UncDropout
-
 
 class CustomMultiHeadClassifier(MultiTaskModule):
     def __init__(self, in_features, heads_generator, out_features=None,
@@ -317,20 +313,7 @@ class CombinedModel(MultiTaskModule):
 
         # out = self.dropout(out)
 
-        if isinstance(self.classifier, CustomMultiHeadClassifier) and \
-                isinstance(self.classifier.classifiers['0'], DropoutWrapper) \
-                and t is not None:
-
-            for k, c in self.classifier.classifiers.items():
-                c.set_t(t)
-
-            logits = self.classifier(out, task_labels=task_label)
-
-            for k, c in self.classifier.classifiers.items():
-                c.set_t(None)
-
-        else:
-            logits = self.classifier(out, task_labels=task_label)
+        logits = self.classifier(out, task_labels=task_label)
 
         if return_embeddings:
             return out, logits
@@ -382,46 +365,3 @@ class CombinedModel(MultiTaskModule):
             out[task_mask] = out_task
         return out
 
-
-# class CombinedModel(nn.Module):
-#     def __init__(self, backbone: nn.Module, classifier: nn.Module):
-#         super().__init__()
-#         self.backbone = backbone
-#         self.classifier = classifier
-#
-#     def forward(self, x):
-#         return self.classifier(torch.flatten(self.backbone(x), 1))
-
-class DropoutWrapper(nn.Module):
-    def __init__(self, i, o):
-        super().__init__()
-        self.t = None
-        self.model = nn.Sequential(nn.ReLU(),
-                                   # UncDropout(0.5),
-                                   nn.Linear(i, i),
-                                   # UncDropout(0.5),
-                                   nn.ReLU(),
-                                   nn.Linear(i, o))
-
-    def force_eval(self):
-        for m in self.modules():
-            if isinstance(m, UncDropout):
-                m.force_eval()
-
-    def set_t(self, t):
-        self.t = t
-
-    def forward(self, x, task_labels=None, t=None, **kwargs):
-        if t is None:
-            t = self.t
-
-        if t is None or t == 1:
-            return self.model(x)
-
-        r = []
-        for _ in range(t):
-            r.append(self.model(x))
-
-        f = torch.stack(r, 0)
-
-        return f.mean(0), f

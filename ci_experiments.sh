@@ -2,7 +2,7 @@
 
 DEVICE=$1
 
-declare -a arr=("gem" "ewc" "naive" "cumulative" "replay" "oewc" "icarl")
+declare -a arr=("gem" "ewc" "naive" "cumulative" "replay" "icarl")
 #declare -a arr=("gem" "ewc" "er" "cml" "naive" "cumulative" "replay" "oewc" "icarl")
 
 for i in "${arr[@]}"
@@ -15,7 +15,7 @@ do
   bash bash/ci_splitcifar100_experiments.sh "$i" "$DEVICE"
 done
 
-#for i in "${arr[@]}"
-#do
-#  bash bash/ci_splittinyimagenet_experiments.sh "$i" "$DEVICE"
-#done
+for i in "${arr[@]}"
+do
+  bash bash/ci_splittinyimagenet_experiments.sh "$i" "$DEVICE"
+done
