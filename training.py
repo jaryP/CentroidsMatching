@@ -161,12 +161,14 @@ def avalanche_training(cfg: DictConfig):
     momentum = optimizer_cfg.get('momentum', 0.9)
     weight_decay = optimizer_cfg.get('weight_decay', 0)
 
-    if torch.cuda.is_available() and device != 'cpu':
+    if device == 'cpu':
+        warnings.warn("Device set to cpu.")
+    elif torch.cuda.is_available():
         torch.cuda.set_device(device)
         device = 'cuda:{}'.format(device)
     else:
-        warnings.warn("Device not found, CUDA not available, "
-                      "or device set to cpu")
+        warnings.warn(f"Device not found {device} "
+                      f"or CUDA {torch.cuda.is_available()}")
 
     device = torch.device(device)
 

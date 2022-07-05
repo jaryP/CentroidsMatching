@@ -1,3 +1,4 @@
+from abc import ABC, abstractmethod
 from collections import defaultdict
 from itertools import chain
 
@@ -48,6 +49,47 @@ class CustomExperienceBalancedBuffer(BalancedExemplarsBuffer):
 
         for ll, b in zip(lens, self.buffer_groups.values()):
             b.resize(strategy, ll)
+
+
+class Memory(ABC):
+    def __init__(self, memory_size, adaptive_size: bool = True, **kwargs):
+
+        self.memory_size = memory_size
+        self.adaptive_size = adaptive_size
+
+        self._memory = {}
+
+    def get_group_lengths(self, num_groups):
+        if self.adaptive_size:
+            lengths = [self.memory_size // num_groups for _ in range(num_groups)]
+            rem = self.memory_size - sum(lengths)
+            for i in range(rem):
+                lengths[i] += 1
+        else:
+            lengths = [self.memory_size // len(self._memory) for _ in
+                       range(num_groups)]
+        return lengths
+
+    def resize(self, new_size):
+        """ Update the maximum size of the buffers. """
+
+        self.memory_size = new_size
+
+        lens = self.get_group_lengths(len(self._memory))
+        for ll, buffer in zip(lens, self._memory.values()):
+            buffer.resize(ll)
+
+    @property
+    def buffer_datasets(self):
+        return [g.buffer for g in self._memory.values()]
+
+    @property
+    def buffer(self):
+        return AvalancheConcatDataset(self.buffer_datasets)
+
+    @abstractmethod
+    def add_task(self, dataset, tid, model, **kwargs):
+        pass
 
 
 class DistanceMemory:
@@ -126,7 +168,98 @@ class DistanceMemory:
         return AvalancheConcatDataset(self.memory.values())
 
 
-class ClusteringMemory:
+class ClusteringMemory(Memory):
+    def __init__(self,
+                 memory_size,
+                 n_clusters,
+                 cluster_type='kmeans',
+                 **kwargs):
+
+        super().__init__(memory_size, **kwargs)
+
+        self.memory = {}
+        # self.samples_per_centroid = samples_per_centroid
+        self.n_clusters = n_clusters
+
+        # self.random_sample = random_sample
+
+        if cluster_type == 'kmeans':
+            self._algo = KMeans
+        elif cluster_type == 'spectral':
+            self._algo = SpectralClustering
+        else:
+            assert False
+
+    @torch.no_grad()
+    def add_task(self, dataset, tid, model, **kwargs):
+        device = next(model.parameters()).device
+
+        embs = []
+        ys = []
+
+        for index, (x, y, t) in enumerate(DataLoader(dataset, 32)):
+
+            x = x.to(device)
+
+            o = model(x, tid)
+            o = o.cpu().numpy()
+
+            embs.append(o)
+            ys.extend(y.tolist())
+
+        embs = np.concatenate(embs, 0)
+        ys = np.array(ys)
+        indexes = np.arange(len(ys))
+
+        lens = self.get_group_lengths(len(indexes) + len(self.buffer_datasets))
+
+        for ln, y in zip(lens[:len(indexes)], np.unique(ys)):
+            mask = ys == y
+
+            _embs = embs[mask]
+            _indexes = indexes[mask]
+
+            algo = self._algo(n_clusters=self.n_clusters)
+            algo.fit(_embs)
+
+            labels = algo.labels_
+
+            idx_per_cluster = {}
+
+            for l in np.unique(labels):
+                _i = _indexes[labels == l]
+                np.random.shuffle(_i)
+                _i = _i[:ln]
+
+                idx_per_cluster[l] = _i
+
+            all_indexes = list(chain(idx_per_cluster.items()))
+
+            val = len(all_indexes)
+            val1 = ln * len(self.n_clusters)
+
+            if val < val1:
+                np.random.shuffle(indexes)
+
+                for i in indexes:
+                    if i not in all_indexes:
+                        all_indexes.append(i)
+
+                    if len(all_indexes) == val1:
+                        break
+
+            new_data = AvalancheSubset(dataset, all_indexes)
+
+            new_buffer = ReservoirSamplingBuffer(lens[-1])
+            new_buffer.update_from_dataset(new_data)
+
+            self._memory[(tid, y)] = new_buffer
+
+        for ll, b in zip(lens, self._memory.values()):
+            b.resize(None, ll)
+
+
+class _ClusteringMemory:
     def __init__(self,
                  samples_per_centroid,
                  n_clusters,
@@ -220,7 +353,39 @@ class ClusteringMemory:
         return AvalancheConcatDataset(self.memory.values())
 
 
-class RandomMemory:
+class RandomMemory(Memory):
+    def __init__(self, samples_per_class, memory_size, **kwargs):
+        super().__init__(memory_size, **kwargs)
+
+    @torch.no_grad()
+    def add_task(self, dataset, tid, **kwargs):
+        indexes = defaultdict(list)
+
+        for index, (x, y, t) in enumerate(DataLoader(dataset, 1)):
+
+            indexes[y.item()].append(index)
+
+        lens = self.get_group_lengths(len(indexes) + len(self.buffer_datasets))
+
+        for j, k in enumerate(indexes):
+            i = np.asarray(indexes[k])
+            np.random.shuffle(i)
+
+            new_data = AvalancheSubset(dataset, i[:lens[j]])
+
+            new_buffer = ReservoirSamplingBuffer(lens[-1])
+            new_buffer.update_from_dataset(new_data)
+
+            self._memory[(tid, k)] = new_buffer
+
+        for ll, b in zip(lens, self._memory.values()):
+            b.resize(None, ll)
+
+    def concatenated_dataset(self):
+        return AvalancheConcatDataset(self._memory.values())
+
+
+class _RandomMemory:
     def __init__(self, samples_per_class, **kwargs):
         self.memory = {}
         self.samples_per_class = samples_per_class
