@@ -346,11 +346,11 @@ class CombinedModel(MultiTaskModule):
             # fast path. mini-batch is single task.
             return self.forward_single_task(x, task_labels, return_embeddings,
                                             **kwargs)
-        else:
-            unique_tasks = torch.unique(task_labels)
-            if len(unique_tasks) == 1:
-                return self.forward_single_task(x, unique_tasks.item(),
-                                                return_embeddings, **kwargs)
+
+        unique_tasks = torch.unique(task_labels)
+        if len(unique_tasks) == 1:
+            return self.forward_single_task(x, unique_tasks.item(),
+                                            return_embeddings, **kwargs)
 
         out = None
         for task in unique_tasks:

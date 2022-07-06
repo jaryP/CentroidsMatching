@@ -52,7 +52,9 @@ class CustomExperienceBalancedBuffer(BalancedExemplarsBuffer):
 
 
 class Memory(ABC):
-    def __init__(self, memory_size, adaptive_size: bool = True, **kwargs):
+    def __init__(self, memory_size,
+                 adaptive_size: bool = True,
+                 **kwargs):
 
         self.memory_size = memory_size
         self.adaptive_size = adaptive_size
@@ -66,7 +68,7 @@ class Memory(ABC):
             for i in range(rem):
                 lengths[i] += 1
         else:
-            lengths = [self.memory_size // len(self._memory) for _ in
+            lengths = [self.memory_size for _ in
                        range(num_groups)]
         return lengths
 
@@ -255,8 +257,9 @@ class ClusteringMemory(Memory):
 
             self._memory[(tid, y)] = new_buffer
 
-        for ll, b in zip(lens, self._memory.values()):
-            b.resize(None, ll)
+        if self.adaptive_size:
+            for ll, b in zip(lens, self._memory.values()):
+                b.resize(None, ll)
 
 
 class _ClusteringMemory:
@@ -354,7 +357,7 @@ class _ClusteringMemory:
 
 
 class RandomMemory(Memory):
-    def __init__(self, samples_per_class, memory_size, **kwargs):
+    def __init__(self, memory_size, **kwargs):
         super().__init__(memory_size, **kwargs)
 
     @torch.no_grad()
@@ -378,8 +381,9 @@ class RandomMemory(Memory):
 
             self._memory[(tid, k)] = new_buffer
 
-        for ll, b in zip(lens, self._memory.values()):
-            b.resize(None, ll)
+        if self.adaptive_size:
+            for ll, b in zip(lens, self._memory.values()):
+                b.resize(None, ll)
 
     def concatenated_dataset(self):
         return AvalancheConcatDataset(self._memory.values())
@@ -551,7 +555,6 @@ class Projector(nn.Module):
         #     self.values = params
         elif self.proj_type == 'mlp':
             p = nn.Sequential(
-                nn.Linear(embedding_size, embedding_size),
                 nn.ReLU(),
                 nn.Linear(embedding_size, embedding_size))
 
@@ -608,14 +611,17 @@ class ScaleTranslate(nn.Module):
         self.t = nn.ModuleList()
 
     def add_task(self, embedding_size):
-        s = nn.Sequential(nn.Linear(embedding_size, embedding_size),
-                          nn.ReLU(),
+        s = nn.Sequential(nn.ReLU(),
                           nn.Linear(embedding_size, embedding_size),
+                          # nn.ReLU(),
+                          # nn.Linear(embedding_size, embedding_size),
                           nn.Sigmoid())
 
-        t = nn.Sequential(nn.Linear(embedding_size, embedding_size),
-                          nn.ReLU(),
-                          nn.Linear(embedding_size, embedding_size))
+        t = nn.Sequential(nn.ReLU(),
+                          nn.Linear(embedding_size, embedding_size),
+                          # nn.ReLU(),
+                          # nn.Linear(embedding_size, embedding_size)
+                          )
 
         self.s.append(s)
         self.t.append(t)

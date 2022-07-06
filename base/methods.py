@@ -107,7 +107,7 @@ def get_trainer(name, tasks, sit: bool = False, **kwargs):
                                            sit_memory_size=kwargs.
                                            get('sit_memory_size', 500),
                                            proj_w=kwargs.get('proj_w', 1),
-                                           merging_strategy= kwargs.get('merging_strategy', 'scale_translate'),
+                                           merging_strategy=kwargs.get('merging_strategy', 'scale_translate'),
                                            memory_parameters=kwargs.get('memory_parameters', {}),
                                            memory_type=kwargs.get('memory_type', 'random'),
                                            num_experiences=num_experiences,
