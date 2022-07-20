@@ -3,4 +3,5 @@ penalty_weight: 0.1
 save_name: cml_01
 memory_type: random
 memory_parameters:
-  samples_per_class: 50
+  memory_size: 500
+  adaptive_size: true

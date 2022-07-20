@@ -1,4 +1,3 @@
-import csv
 import json
 import logging
 import os
@@ -132,14 +131,14 @@ def avalanche_training(cfg: DictConfig):
     shuffle = scenario['shuffle']
     shuffle_first = scenario.get('shuffle_first', False)
 
-    seed = scenario.get('seed', None)
+    # seed = scenario.get('seed', None)
 
     model = cfg['model']
     model_name = model['name']
 
     method = cfg['method']
     plugin_name = method['name'].lower()
-    save_name = method['save_name']
+    # save_name = method['save_name']
 
     training = cfg['training']
     epochs = training['epochs']
@@ -297,22 +296,22 @@ def avalanche_training(cfg: DictConfig):
     log.info(f'Average across the experiments.')
 
     mean_res = defaultdict(list)
-    with open(os.path.join(base_path, 'experiments_results.csv'),
-              'w', newline='') as csvfile:
+    # with open(os.path.join(base_path, 'experiments_results.csv'),
+    #           'w', newline='') as csvfile:
+    #
+    #     fieldnames = ['experiment'] + list(results[-1].keys())
+    #     writer = csv.DictWriter(csvfile, fieldnames=fieldnames)
+    #     writer.writeheader()
 
-        fieldnames = ['experiment'] + list(results[-1].keys())
-        writer = csv.DictWriter(csvfile, fieldnames=fieldnames)
-        writer.writeheader()
+    for i, r in enumerate(all_results):
 
-        for i, r in enumerate(all_results):
+        for k, v in r[-1].items():
+            mean_res[k].append(v)
 
-            for k, v in r[-1].items():
-                mean_res[k].append(v)
+    m = {k: np.mean(v) for k, v in mean_res.items()}
+    s = {k: np.std(v) for k, v in mean_res.items()}
 
-        m = {k: np.mean(v) for k, v in mean_res.items()}
-        s = {k: np.std(v) for k, v in mean_res.items()}
-
-        for k, v in results[-1].items():
-            _m = m[k]
-            _s = s[k]
-            log.info(f'Metric {k}: mean: {_m*100:.2f}, std: {_s*100:.2f}')
+    for k, v in results[-1].items():
+        _m = m[k]
+        _s = s[k]
+        log.info(f'Metric {k}: mean: {_m*100:.2f}, std: {_s*100:.2f}')

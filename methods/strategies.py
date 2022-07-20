@@ -1,6 +1,8 @@
+from collections import defaultdict
 from typing import Optional, List
 
 import numpy as np
+from avalanche.benchmarks.utils import AvalancheSubset
 from avalanche.benchmarks.utils.data_loader import TaskBalancedDataLoader
 from avalanche.training import BaseStrategy
 from avalanche.training.plugins import StrategyPlugin, EvaluationPlugin
@@ -13,7 +15,6 @@ from torch.utils.data import DataLoader
 from methods.plugins.cml import CentroidsMatching
 from methods.plugins.cml_utils import BatchNormModelWrap
 from methods.plugins.er import EmbeddingRegularizationPlugin
-from methods.plugins.hal import AnchorLearningPlugin
 from methods.plugins.ewc import EWCCustomPlugin
 from models.utils import CombinedModel
 
@@ -98,12 +99,11 @@ class ContinualMetricLearning(BaseStrategy):
                  sit_memory_size: int = 500,
                  merging_strategy: str = 'scale_translate',
                  memory_type: str = 'random',
+                 centroids_merging_strategy: str = None,
                  plugins: Optional[List[StrategyPlugin]] = None,
                  evaluator: EvaluationPlugin = default_logger, eval_every=-1):
 
-        if not sit and \
-                any(isinstance(module, _BatchNorm) for module in
-                    model.modules()):
+        if not sit and any(isinstance(module, _BatchNorm) for module in model.modules()):
             model = BatchNormModelWrap(model)
 
         rp = CentroidsMatching(penalty_weight, sit,
@@ -111,7 +111,8 @@ class ContinualMetricLearning(BaseStrategy):
                                memory_type=memory_type,
                                memory_parameters=memory_parameters,
                                merging_strategy=merging_strategy,
-                               sit_memory_size=sit_memory_size)
+                               sit_memory_size=sit_memory_size,
+                               centroids_merging_strategy=centroids_merging_strategy)
 
         self.rp = rp
 
@@ -122,7 +123,6 @@ class ContinualMetricLearning(BaseStrategy):
 
         self.dev_split_size = dev_split_size
         self.dev_dataloader = None
-        self.dev_indexes = dict()
 
         super().__init__(
             model, optimizer, criterion,
@@ -139,6 +139,30 @@ class ContinualMetricLearning(BaseStrategy):
 
         if not hasattr(self.experience, 'dev_dataset'):
             dataset = self.experience.dataset
+
+            # indexes = defaultdict(list)
+            # for i, (_, y, t) in enumerate(dataset):
+            #     indexes[y].append(i)
+            #
+            # train_idx, dev_idx = [], []
+            #
+            # for k, idx in indexes.items():
+            #     np.random.shuffle(idx)
+            #
+            #     if isinstance(self.dev_split_size, int):
+            #         i = self.dev_split_size // len(indexes)
+            #     else:
+            #         i = int(len(idx) * self.dev_split_size)
+            #
+            #     dev_idx += idx[:i]
+            #     train_idx += idx[i:]
+
+            # self.experience.dataset = AvalancheSubset(dataset.train(), train_idx)
+            # self.experience.dev_dataset = AvalancheSubset(dataset.eval(), dev_idx)
+
+            # self.experience.dataset = CustomSubset(dataset.train(), train_idx)
+            # self.experience.dev_dataset = CustomSubset(dataset.eval(), dev_idx)
+
             idx = np.arange(len(dataset))
             np.random.shuffle(idx)
 
@@ -149,10 +173,12 @@ class ContinualMetricLearning(BaseStrategy):
 
             dev_idx = idx[:dev_i]
             train_idx = idx[dev_i:]
-            self.dev_indexes[exp_n] = (train_idx, dev_idx)
 
-            self.experience.dataset = CustomSubset(dataset.train(), train_idx)
-            self.experience.dev_dataset = CustomSubset(dataset.eval(), dev_idx)
+            # self.experience.dataset = CustomSubset(dataset.train(), train_idx)
+            # self.experience.dev_dataset = CustomSubset(dataset.eval(), dev_idx)
+
+            self.experience.dataset = AvalancheSubset(dataset.train(), train_idx)
+            self.experience.dev_dataset = AvalancheSubset(dataset.eval(), dev_idx)
 
         # if exp_n not in self.dev_indexes:
         #     train = self.experience.dataset
@@ -176,16 +202,6 @@ class ContinualMetricLearning(BaseStrategy):
     def make_train_dataloader(self, num_workers=0, shuffle=True,
                               pin_memory=True, **kwargs):
 
-        # super(ContinualMetricLearning, self).make_train_dataloader(
-        #     num_workers=num_workers,
-        #     shuffle=shuffle,
-        #     pin_memory=pin_memory)
-
-        # self.dataloader = TaskBalancedDataLoader(
-        #     self.adapted_dataset,
-        #     batch_size=self.train_mb_size,
-
-        # )
         self.dataloader = DataLoader(
             self.adapted_dataset,
             num_workers=num_workers,

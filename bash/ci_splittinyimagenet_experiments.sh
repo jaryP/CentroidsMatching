@@ -12,13 +12,13 @@ gem)
 ewc)
 #  python main.py experiment=base2 +scenario=class_incremental_tinyimagenet +model=resnet20 +training=tinyimagenet +method=ewc_1 optimizer=sgd  training.device="$DEVICE" hydra.run.dir='./results/ci_tinyimagenet/resnet20/ewc/ewc_1'
 #  python main.py experiment=base2 +scenario=class_incremental_tinyimagenet +model=resnet20 +training=tinyimagenet +method=ewc_10 optimizer=sgd  training.device="$DEVICE" hydra.run.dir='./results/ci_tinyimagenet/resnet20/ewc/ewc_10'
-#  python main.py experiment=base2 +scenario=class_incremental_tinyimagenet +model=resnet20 +training=tinyimagenet +method=ewc_100 optimizer=sgd  training.device="$DEVICE" hydra.run.dir='./results/ci_tinyimagenet/resnet20/ewc/ewc_100'
-  python main.py experiment=base2 +scenario=class_incremental_tinyimagenet +model=resnet20 +training=tinyimagenet +method=ewc_1000 optimizer=sgd  training.device="$DEVICE" hydra.run.dir='./results/ci_tinyimagenet/resnet20/ewc/ewc_1000'
+  python main.py experiment=base2 +scenario=class_incremental_tinyimagenet +model=resnet20 +training=tinyimagenet +method=ewc_100 optimizer=sgd  training.device="$DEVICE" hydra.run.dir='./results/ci_tinyimagenet/resnet20/ewc/ewc_100'
+#  python main.py experiment=base2 +scenario=class_incremental_tinyimagenet +model=resnet20 +training=tinyimagenet +method=ewc_1000 optimizer=sgd  training.device="$DEVICE" hydra.run.dir='./results/ci_tinyimagenet/resnet20/ewc/ewc_1000'
 ;;
 oewc)
 #  python main.py experiment=base2 +scenario=class_incremental_tinyimagenet +model=resnet20 +training=tinyimagenet +method=ewc_1 optimizer=sgd  training.device="$DEVICE" hydra.run.dir='./results/ci_tinyimagenet/resnet20/ewc/ewc_1'
 #  python main.py experiment=base2 +scenario=class_incremental_tinyimagenet +model=resnet20 +training=tinyimagenet +method=ewc_10 optimizer=sgd  training.device="$DEVICE" hydra.run.dir='./results/ci_tinyimagenet/resnet20/ewc/ewc_10'
-  python main.py experiment=base2 +scenario=class_incremental_tinyimagenet +model=resnet20 +training=tinyimagenet +method=oewc_100 optimizer=sgd  training.device="$DEVICE" hydra.run.dir='./results/ci_tinyimagenet/resnet20/oewc/oewc_100'
+#  python main.py experiment=base2 +scenario=class_incremental_tinyimagenet +model=resnet20 +training=tinyimagenet +method=oewc_100 optimizer=sgd  training.device="$DEVICE" hydra.run.dir='./results/ci_tinyimagenet/resnet20/oewc/oewc_100'
 #  python main.py experiment=base2 +scenario=class_incremental_tinyimagenet +model=resnet20 +training=tinyimagenet +method=ewc_1000 optimizer=sgd  training.device="$DEVICE" hydra.run.dir='./results/ci_tinyimagenet/resnet20/ewc/ewc_1000'
 ;;
 er)
@@ -40,8 +40,8 @@ cumulative)
   python main.py experiment=base2 +scenario=class_incremental_tinyimagenet +model=resnet20 +training=tinyimagenet +method=cumulative optimizer=sgd  training.device="$DEVICE" hydra.run.dir='./results/ci_tinyimagenet/resnet20/cumulative/'
 ;;
 replay)
-  python main.py experiment=base2 +scenario=class_incremental_tinyimagenet +model=resnet20 +training=tinyimagenet +method=replay_500 optimizer=sgd  training.device="$DEVICE" hydra.run.dir='./results/ci_tinyimagenet/resnet20/replay/replay_500'
-#  python main.py experiment=base2 +scenario=class_incremental_tinyimagenet +model=resnet20 +training=tinyimagenet +method=replay_1000 optimizer=sgd  training.device="$DEVICE" hydra.run.dir='./results/ci_tinyimagenet/resnet20/replay/replay_1000'
+#  python main.py experiment=base2 +scenario=class_incremental_tinyimagenet +model=resnet20 +training=tinyimagenet +method=replay_500 optimizer=sgd  training.device="$DEVICE" hydra.run.dir='./results/ci_tinyimagenet/resnet20/replay/replay_500'
+  python main.py experiment=base2 +scenario=class_incremental_tinyimagenet +model=resnet20 +training=tinyimagenet +method=replay_1000 optimizer=sgd  training.device="$DEVICE" hydra.run.dir='./results/ci_tinyimagenet/resnet20/replay/replay_1000'
 ;;
 *)
   echo -n "Unrecognized method"

@@ -23,9 +23,9 @@ oewc)
 ;;
 er)
   python main.py +scenario=task_incremental_cifar10 +model=resnet20 +training=cifar10 +method=er_200 optimizer=sgd  training.device="$DEVICE" hydra.run.dir='./results/ti_cifar10/resnet20/er/er_200'
-  python main.py +scenario=task_incremental_cifar10 +model=resnet20 +training=cifar10 +method=er_200_10 optimizer=sgd  training.device="$DEVICE" hydra.run.dir='./results/ti_cifar10/resnet20/er/er_200_10'
-  python main.py +scenario=task_incremental_cifar10 +model=resnet20 +training=cifar10 +method=er_500_1 optimizer=sgd  training.device="$DEVICE" hydra.run.dir='./results/ti_cifar10/resnet20/er/er_500'
-  python main.py +scenario=task_incremental_cifar10 +model=resnet20 +training=cifar10 +method=er_500_10 optimizer=sgd  training.device="$DEVICE" hydra.run.dir='./results/ti_cifar10/resnet20/er/er_500_10'
+#  python main.py +scenario=task_incremental_cifar10 +model=resnet20 +training=cifar10 +method=er_200_10 optimizer=sgd  training.device="$DEVICE" hydra.run.dir='./results/ti_cifar10/resnet20/er/er_200_10'
+#  python main.py +scenario=task_incremental_cifar10 +model=resnet20 +training=cifar10 +method=er_500_1 optimizer=sgd  training.device="$DEVICE" hydra.run.dir='./results/ti_cifar10/resnet20/er/er_500'
+#  python main.py +scenario=task_incremental_cifar10 +model=resnet20 +training=cifar10 +method=er_500_10 optimizer=sgd  training.device="$DEVICE" hydra.run.dir='./results/ti_cifar10/resnet20/er/er_500_10'
 ;;
 cml)
   python main.py +scenario=task_incremental_cifar10 +model=resnet20 +training=cifar10 training.epochs=20 +method=cml_05 optimizer=sgd  training.device="$DEVICE" hydra.run.dir='./results/ti_cifar10/resnet20/cml/cml_05'

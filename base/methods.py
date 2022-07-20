@@ -110,6 +110,7 @@ def get_trainer(name, tasks, sit: bool = False, **kwargs):
                                            merging_strategy=kwargs.get('merging_strategy', 'scale_translate'),
                                            memory_parameters=kwargs.get('memory_parameters', {}),
                                            memory_type=kwargs.get('memory_type', 'random'),
+                                           centroids_merging_strategy=kwargs.get('centroids_merging_strategy', 'None'),
                                            num_experiences=num_experiences,
                                            optimizer=optimizer,
                                            criterion=criterion,
