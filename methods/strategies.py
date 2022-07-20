@@ -140,29 +140,6 @@ class ContinualMetricLearning(BaseStrategy):
         if not hasattr(self.experience, 'dev_dataset'):
             dataset = self.experience.dataset
 
-            # indexes = defaultdict(list)
-            # for i, (_, y, t) in enumerate(dataset):
-            #     indexes[y].append(i)
-            #
-            # train_idx, dev_idx = [], []
-            #
-            # for k, idx in indexes.items():
-            #     np.random.shuffle(idx)
-            #
-            #     if isinstance(self.dev_split_size, int):
-            #         i = self.dev_split_size // len(indexes)
-            #     else:
-            #         i = int(len(idx) * self.dev_split_size)
-            #
-            #     dev_idx += idx[:i]
-            #     train_idx += idx[i:]
-
-            # self.experience.dataset = AvalancheSubset(dataset.train(), train_idx)
-            # self.experience.dev_dataset = AvalancheSubset(dataset.eval(), dev_idx)
-
-            # self.experience.dataset = CustomSubset(dataset.train(), train_idx)
-            # self.experience.dev_dataset = CustomSubset(dataset.eval(), dev_idx)
-
             idx = np.arange(len(dataset))
             np.random.shuffle(idx)
 
@@ -174,30 +151,10 @@ class ContinualMetricLearning(BaseStrategy):
             dev_idx = idx[:dev_i]
             train_idx = idx[dev_i:]
 
-            # self.experience.dataset = CustomSubset(dataset.train(), train_idx)
-            # self.experience.dev_dataset = CustomSubset(dataset.eval(), dev_idx)
-
             self.experience.dataset = AvalancheSubset(dataset.train(), train_idx)
             self.experience.dev_dataset = AvalancheSubset(dataset.eval(), dev_idx)
 
-        # if exp_n not in self.dev_indexes:
-        #     train = self.experience.dataset
-        #     idx = np.arange(len(train))
-        #     np.random.shuffle(idx)
-        #     dev_i = int(len(idx) * self.dev_split_size)
-        #
-        #     dev_idx = idx[:dev_i]
-        #     train_idx = idx[dev_i:]
-        #     self.dev_indexes[exp_n] = (train_idx, dev_idx)
-        #
-        #     dataset = self.experience.dataset
-        #     self.experience.dataset = CustomSubset(dataset.train(), train_idx)
-        #     self.experience.dev_dataset = CustomSubset(dataset.eval(), dev_idx)
-        # else:
-        #     train_idx, dev_idx = self.dev_indexes[exp_n]
-
         self.adapted_dataset = self.experience.dataset
-        # self.adapted_dataset = self.adapted_dataset.train()
 
     def make_train_dataloader(self, num_workers=0, shuffle=True,
                               pin_memory=True, **kwargs):

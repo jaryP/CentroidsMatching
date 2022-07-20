@@ -23,9 +23,6 @@ def get_backbone(name: str, channels: int = 3):
         else:
             model = model()
 
-        # if name == 'vgg11':
-        #     model = vgg11()
-
         feat = model.features
         model = nn.Sequential(feat, nn.AdaptiveAvgPool2d((7, 7)))
 
@@ -66,34 +63,6 @@ def get_backbone(name: str, channels: int = 3):
                 return self.model(x)
 
         return Wrapper(s)
-
-        # def f(x, **kwargs):
-        #     return s(x)
-        #
-        # return nn.Sequential(
-        #     nn.Conv2d(3, 64, kernel_size=3, stride=2, padding=1),
-        #     nn.ReLU(inplace=True),
-        #     # nn.Dropout2d(0.25),
-        #     nn.MaxPool2d(kernel_size=2),
-        #
-        #     nn.Conv2d(64, 192, kernel_size=3, padding=1),
-        #     nn.ReLU(inplace=True),
-        #     # nn.Dropout2d(0.25),
-        #     nn.MaxPool2d(kernel_size=2),
-        #
-        #     nn.Conv2d(192, 384, kernel_size=3, padding=1),
-        #     nn.ReLU(inplace=True),
-        #     # nn.Dropout2d(0.25),
-        #
-        #     nn.Conv2d(384, 256, kernel_size=3, padding=1),
-        #     nn.ReLU(inplace=True),
-        #     # nn.Dropout2d(0.25),
-        #
-        #     nn.Conv2d(256, 256, kernel_size=3, padding=1),
-        #     nn.ReLU(inplace=True),
-        #     nn.AdaptiveAvgPool2d(1),
-        #     # nn.Dropout2d(0.25),
-        # )
 
     elif 'resnet' in name:
         if name == 'resnet20':
@@ -151,20 +120,6 @@ def get_cl_model(model_name: str,
 
         return Wrapper()
 
-        # if sit:
-        #     return nn.Sequential(nn.ReLU(),
-        #                          UncDropout(0.25),
-        #                          nn.Linear(i, i),
-        #                          nn.ReLU(),
-        #                          UncDropout(0.25),
-        #                          nn.Linear(i, o))
-        # else:
-
-        # return nn.Sequential(nn.ReLU(),
-        #                      nn.Linear(i, i),
-        #                      nn.ReLU(),
-        #                      nn.Linear(i, o))
-
     if is_stream or method_name == 'icarl':
         classifier = IncrementalClassifier(size)
     else:
@@ -175,22 +130,11 @@ def get_cl_model(model_name: str,
                 if sit:
                     classifier = IncrementalClassifier(size)
                 else:
-                    # classifier = CustomMultiHeadClassifier(size, heads_generator)
                     classifier = MultiHeadClassifier(size)
             else:
                 if cml_out_features is None:
                     cml_out_features = 128
 
-                # if sit:
-                #     hg = drop_heads_generator
-                # else:
-                #     hg = heads_generator
-
-                # if sit:
-                #     classifier = heads_generator(size, 128)
-                # else:
-
-                # p = 0.5
                 classifier = CustomMultiHeadClassifier(size, heads_generator,
                                                        cml_out_features)
 

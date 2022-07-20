@@ -26,8 +26,6 @@ def nc_scenario(name: str,
                 n_tasks: int,
                 return_task_id: bool,
                 shuffle: bool = True,
-                train_transform: Optional[Any] = None,
-                eval_transform: Optional[Any] = None,
                 seed: Optional[int] = None):
     name = name.lower()
 
@@ -36,8 +34,6 @@ def nc_scenario(name: str,
             return getattr(avalanche.benchmarks, v)(n_experiences=n_tasks,
                                                     return_task_id=return_task_id,
                                                     shuffle=shuffle,
-                                                    # train_transform=train_transform,
-                                                    # eval_transform=eval_transform,
                                                     seed=seed)
 
     return None
@@ -108,18 +104,6 @@ def get_dataset_nc_scenario(name: str,
     name = name.lower()
     scenario = scenario.lower()
 
-    # avalanche_scenario = nc_scenario(name=scenario,
-    #                                  n_tasks=n_tasks,
-    #                                  return_task_id=return_task_id,
-    #                                  shuffle=shuffle,
-    #                                  train_transform=None,
-    #                                  eval_transform=None,
-    #                                  seed=seed)
-    #
-    # if avalanche_scenario is not None:
-    #     return avalanche_scenario
-    #
-
     r = get_dataset_by_name(name)
 
     if r is None:
@@ -131,34 +115,6 @@ def get_dataset_nc_scenario(name: str,
         train=(train_t, None),
         eval=(test_t, None)
     )
-
-    # Datasets should be instances of AvalancheDataset
-    # train_dataset = AvalancheDataset(
-    #     train_split,
-    #     transform_groups=transform_groups,
-    #     initial_transform_group='train',
-    #     dataset_type=AvalancheDatasetType.CLASSIFICATION)
-    #
-    # test_dataset = AvalancheDataset(
-    #     test_split,
-    #     transform_groups=transform_groups,
-    #     initial_transform_group='eval',
-    #     dataset_type=AvalancheDatasetType.CLASSIFICATION)
-    #
-    # tasks = NCScenario(train_dataset=train_dataset,
-    #                    test_dataset=test_dataset,
-    #                    n_experiences=n_tasks,
-    #                    task_labels=True,
-    #                    shuffle=shuffle,
-    #                    seed=seed,
-    #                    fixed_class_order=None,
-    #                    # per_exp_classes,
-    #                    # class_ids_from_zero_from_first_exp,
-    #                    class_ids_from_zero_in_each_exp=cil,
-    #                    # reproducibility_data
-    #                    )
-    #
-    # return tasks
 
     if til and not force_sit:
         return nc_benchmark(

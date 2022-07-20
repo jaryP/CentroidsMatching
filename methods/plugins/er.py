@@ -74,15 +74,9 @@ class EmbeddingRegularizationPlugin(StrategyPlugin):
         if strategy.clock.train_exp_counter > 0:
             total_dis = 0
             device = strategy.device
-            # strategy.model.eval()
 
             for t in self.memory_x.keys():
                 xref, past_emb, t = self.memory_x[t], self.memory_y[t], self.memory_tid[t]
-                # for xref, past_emb, t in zip(self.memory_x, self.memory_y, self.memory_tid):
-                # for t in range(strategy.clock.train_exp_counter):
-
-                # xref = self.memory_x[t].to(device
-                # past_emb = self.memory_y[t].to(device)
 
                 xref = xref.to(device)
                 past_emb = past_emb.to(device)
@@ -93,15 +87,11 @@ class EmbeddingRegularizationPlugin(StrategyPlugin):
                     sim = cosine_similarity(past_emb, embedding)
                     diff = 1 - sim
                 else:
-                    # sim = cosine_similarity(past_emb, embedding)
                     diff = torch.norm(past_emb - embedding, 2, -1)
 
                 diff = diff.mean()
                 total_dis += diff
 
             total_dis = total_dis / len(self.memory_x)
-            # print(total_dis, strategy.loss)
 
             strategy.loss += total_dis * self.penalty_weight
-
-            # strategy.model.train()

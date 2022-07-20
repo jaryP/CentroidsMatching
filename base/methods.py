@@ -18,10 +18,6 @@ def get_plugin(name, **kwargs):
         return None
     elif name == 'replay':
         return ReplayPlugin(mem_size=kwargs['mem_size'])
-    # elif name == 'cumulative':
-    #     return Cumulative()
-    # elif name == 'naive':
-    #     Naive
     else:
         assert False
 

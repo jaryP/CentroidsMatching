@@ -19,7 +19,9 @@ In the latter scenario, we also use an external memory containing samples from p
 
 A visual overview of how the approach works is the following:
 
-<img src="assets/cm_scenarios.png" width="872" height="228"/>
+<p align="center">
+<img src="assets/cm_scenarios.png"/>
+<p >
 
 ## How to use the code and replicate the results 
 

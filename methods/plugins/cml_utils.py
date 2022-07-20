@@ -16,39 +16,6 @@ from torchvision.utils import make_grid
 import torchvision.transforms.functional as F
 
 
-class CustomExperienceBalancedBuffer(BalancedExemplarsBuffer):
-    """ Rehearsal buffer with samples balanced over experiences.
-
-    The number of experiences can be fixed up front or adaptive, based on
-    the 'adaptive_size' attribute. When adaptive, the memory is equally
-    divided over all the unique observed experiences so far.
-    """
-
-    def __init__(self, max_size: int, adaptive_size: bool = True,
-                 num_experiences=None):
-        """
-        :param max_size: max number of total input samples in the replay
-            memory.
-        :param adaptive_size: True if mem_size is divided equally over all
-                              observed experiences (keys in replay_mem).
-        :param num_experiences: If adaptive size is False, the fixed number
-                                of experiences to divide capacity over.
-        """
-        super().__init__(max_size, adaptive_size, num_experiences)
-
-    def update(self, dataset, strategy: "BaseStrategy", **kwargs):
-        new_data = dataset
-        num_exps = strategy.clock.train_exp_counter + 1
-        lens = self.get_group_lengths(num_exps)
-
-        new_buffer = ReservoirSamplingBuffer(lens[-1])
-        new_buffer.update_from_dataset(new_data)
-        self.buffer_groups[num_exps - 1] = new_buffer
-
-        for ll, b in zip(lens, self.buffer_groups.values()):
-            b.resize(strategy, ll)
-
-
 class Memory(ABC):
     def __init__(self, memory_size,
                  adaptive_size: bool = True,
@@ -149,14 +116,6 @@ class DistanceMemory:
                         i = np.random.choice(np.arange(len(weights)),
                                              p=weights)
 
-                        # weights = [w / sum(scores[y]) for w in scores[y]]
-                        # i = np.random.choice(np.arange(len(weights)),
-                        #                      p=weights)
-                        # r = np.random.uniform()
-                        #
-                        # # più è distante e meno è probabile che venga cambiato
-                        # if r < scores[y][i] / (scores[y][i] + max_distance):
-
                         indexes[y][i] = index
                         scores[y][i] = max_distance
                         embs[y][i] = o
@@ -178,10 +137,7 @@ class ClusteringMemory(Memory):
         super().__init__(memory_size, **kwargs)
 
         self.memory = {}
-        # self.samples_per_centroid = samples_per_centroid
         self.n_clusters = n_clusters
-
-        # self.random_sample = random_sample
 
         if cluster_type == 'kmeans':
             self._algo = KMeans
@@ -300,113 +256,6 @@ class RandomMemory(Memory):
         return AvalancheConcatDataset(self._memory.values())
 
 
-class GeneratedMemory:
-    def __init__(self, samples_per_class, **kwargs):
-        self.memory = {}
-        self.samples_per_class = samples_per_class
-
-        self.lr = 0.1
-        self.iterations = 100
-
-    def calculate_similarity(self, x, y, distance: str = None, sigma=1):
-        # if distance is None:
-        #     distance = self.similarity
-
-        n = x.size(0)
-        m = y.size(0)
-        d = x.size(1)
-        if d != y.size(1):
-            raise Exception
-
-        a = x.unsqueeze(1).expand(n, m, d)
-        b = y.unsqueeze(0).expand(n, m, d)
-
-        # if distance == 'euclidean':
-        similarity = -torch.pow(a - b, 2).sum(2).sqrt()
-        # elif distance == 'rbf':
-        #     similarity = -torch.pow(a - b, 2).sum(2).sqrt()
-        #     similarity = similarity / (2 * sigma ** 2)
-        #     similarity = torch.exp(similarity)
-        # elif distance == 'cosine':
-        #     similarity = cosine_similarity(a, b, -1)
-        # else:
-        #     assert False
-
-        return similarity
-
-    def add_task(self,
-                 dataset: AvalancheDataset,
-                 tid: int,
-                 model: nn.Module,
-                 **kwargs):
-
-        def show(imgs):
-            if not isinstance(imgs, list):
-                imgs = [imgs]
-            fig, axs = plt.subplots(ncols=len(imgs), squeeze=False)
-            for i, img in enumerate(imgs):
-                img = img.detach()
-                img = F.to_pil_image(img)
-                axs[0, i].imshow(np.asarray(img))
-                axs[0, i].set(xticklabels=[], yticklabels=[], xticks=[],
-                              yticks=[])
-            plt.show()
-            plt.close(fig)
-
-        device = next(model.parameters()).device
-
-        classes = np.unique(dataset.targets)
-        x, _, _ = next(iter(DataLoader(dataset, 32)))
-        mn, mx = x.min(), x.max()
-
-        shape = (self.samples_per_class, ) + x.shape[1:]
-
-        for current_class in classes:
-            synthetic_images = (mn - mx) * torch.rand(*shape, device=device, requires_grad=True) + mx
-            synthetic_images.to(device)
-
-            for i in range(self.iterations):
-                for index, (x, y, t) in enumerate(DataLoader(dataset,
-                                                             32,
-                                                             shuffle=True)):
-
-                    x, y, t = x.to(device), y.to(device), t.to(device)
-
-                    os = model(synthetic_images, tid)
-                    o = model(x, tid)
-
-                    centroids = torch.stack([(o[y == c]).mean(0)
-                                             for c in classes], 0)
-
-                    sim = self.calculate_similarity(os, centroids)
-                    loss = -log_softmax(sim, dim=1).gather(1, torch.full_like(y, current_class).unsqueeze(-1))
-                    loss = loss.view(-1).mean()
-
-                    grads = autograd.grad(loss, synthetic_images, retain_graph=False, create_graph=False)[0]
-
-                    synthetic_images = synthetic_images - self.lr * grads
-                    synthetic_images = torch.clamp(synthetic_images, mn, mx)
-                    synthetic_images = synthetic_images.cpu().to(device)
-
-                print(loss)
-
-                grid = make_grid(synthetic_images.cpu())
-
-                show(grid)
-
-        #     indexes[y.item()].append(index)
-        #
-        # for k in list(indexes):
-        #     i = np.asarray(indexes[k])
-        #     np.random.shuffle(i)
-        #
-        #     self.memory[(tid, k)] = AvalancheSubset(dataset,
-        #                                             i[:self.samples_per_class])
-
-    def concatenated_dataset(self):
-        return AvalancheConcatDataset(self.memory.values())
-
-
 class FakeMerging(torch.nn.Module):
     def __init__(self, **kwargs):
         super().__init__()
@@ -416,6 +265,7 @@ class FakeMerging(torch.nn.Module):
 
     def forward(self, x, i, **kwargs):
         return x
+
 
 class Projector(nn.Module):
     def __init__(self, proj_type='offset', device=None):
@@ -441,47 +291,12 @@ class Projector(nn.Module):
         if self.proj_type == 'offset':
             self.values.append(nn.Parameter(torch.randn(embedding_size)))
 
-        # elif self.proj_type == 'embeddings':
-        #     emb = nn.Embedding(num_embeddings=n_tasks,
-        #                        embedding_dim=embedding_size)
-        #     linear = nn.Sequential(nn.Linear(embedding_size, embedding_size),
-        #                            nn.ReLU(),
-        #                            nn.Linear(embedding_size, embedding_size))
-        #     params = nn.ModuleList([emb, linear])
-        #
-        #     self.values = params
         elif self.proj_type == 'mlp':
             p = nn.Sequential(
                 nn.ReLU(),
                 nn.Linear(embedding_size, embedding_size))
 
             self.values.append(p)
-
-    # def reset(self, n_tasks, embedding_size):
-    #     if self.proj_type == 'offset':
-    #         offsets = nn.ParameterList(
-    #             [nn.Parameter(torch.randn(embedding_size))
-    #              for _ in range(n_tasks)])
-    #
-    #         self.values = offsets
-    #
-    #     elif self.proj_type == 'embeddings':
-    #         emb = nn.Embedding(num_embeddings=n_tasks,
-    #                            embedding_dim=embedding_size)
-    #         linear = nn.Sequential(nn.Linear(embedding_size, embedding_size),
-    #                                nn.ReLU(),
-    #                                nn.Linear(embedding_size, embedding_size))
-    #         params = nn.ModuleList([emb, linear])
-    #
-    #         self.values = params
-    #     elif self.proj_type == 'mlp':
-    #         params = nn.ModuleList([nn.Sequential(
-    #             nn.Linear(embedding_size, embedding_size),
-    #             nn.ReLU(),
-    #             nn.Linear(embedding_size, embedding_size))
-    #             for _ in range(n_tasks)])
-    #
-    #         self.values = params
 
     def forward(self, x, i):
         if self.proj_type == 'offset':
@@ -510,14 +325,10 @@ class ScaleTranslate(nn.Module):
     def add_task(self, embedding_size):
         s = nn.Sequential(nn.ReLU(),
                           nn.Linear(embedding_size, embedding_size),
-                          # nn.ReLU(),
-                          # nn.Linear(embedding_size, embedding_size),
                           nn.Sigmoid())
 
         t = nn.Sequential(nn.ReLU(),
                           nn.Linear(embedding_size, embedding_size),
-                          # nn.ReLU(),
-                          # nn.Linear(embedding_size, embedding_size)
                           )
 
         self.s.append(s)

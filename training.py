@@ -266,15 +266,6 @@ def avalanche_training(cfg: DictConfig):
                 results.append(strategy.eval(tasks.test_stream[:i + 1],
                                              pin_memory=pin_memory,
                                              num_workers=num_workers))
-
-                # results.append(strategy.eval(tasks.test_stream))
-                
-                # if isinstance(strategy, ContinualMetricLearning) and plot:
-                #     strategy.rp.save_embeddings(strategy,
-                #                                 tasks.test_stream[:i + 1],
-                #                                 os.path.join(experiment_path,
-                #                                              'embeddings'))
-
             output_file.close()
 
         for res in results:
@@ -296,12 +287,6 @@ def avalanche_training(cfg: DictConfig):
     log.info(f'Average across the experiments.')
 
     mean_res = defaultdict(list)
-    # with open(os.path.join(base_path, 'experiments_results.csv'),
-    #           'w', newline='') as csvfile:
-    #
-    #     fieldnames = ['experiment'] + list(results[-1].keys())
-    #     writer = csv.DictWriter(csvfile, fieldnames=fieldnames)
-    #     writer.writeheader()
 
     for i, r in enumerate(all_results):
 
