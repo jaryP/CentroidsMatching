@@ -1,0 +1,31 @@
+#!/usr/bin/env bash
+
+DEVICE=$1
+
+python main.py +scenario=class_incremental_cifar10 +model=resnet20 +training=cifar10 +method=cml_01 optimizer=sgd training.device="$DEVICE" hydra.run.dir='./results/ablation/ci_cifar10/resnet20/cml_merging_stocazzo/proj_scale' experiment.experiments=2
+python main.py +scenario=class_incremental_cifar10 +model=resnet20 +training=cifar10 +method=cml_01 optimizer=sgd training.device="$DEVICE" hydra.run.dir='./results/ablation/ci_cifar10/resnet20/cml_merging_stocazzo/mlp' experiment.experiments=2 +method.merging_strategy=mlp +scenario.shuffle_first=true experiment.load=true
+python main.py +scenario=class_incremental_cifar10 +model=resnet20 +training=cifar10 +method=cml_01 optimizer=sgd training.device="$DEVICE" hydra.run.dir='./results/ablation/ci_cifar10/resnet20/cml_merging_stocazzo/offset' experiment.experiments=2 +method.merging_strategy=offset +scenario.shuffle_first=true experiment.load=true
+python main.py +scenario=class_incremental_cifar10 +model=resnet20 +training=cifar10 +method=cml_01 optimizer=sgd training.device="$DEVICE" hydra.run.dir='./results/ablation/ci_cifar10/resnet20/cml_merging_stocazzo/none' experiment.experiments=2 +method.merging_strategy=none +scenario.shuffle_first=true experiment.load=true
+
+
+python main.py +scenario=class_incremental_cifar10 +model=resnet20 +training=cifar10 +method=cml_01 optimizer=sgd training.device="$DEVICE" hydra.run.dir='./results/ablation/ci_cifar10/resnet20/cml_merging_stocazzo/proj_scale' experiment.experiments=2
+python main.py +scenario=class_incremental_cifar10 +model=resnet20 +training=cifar10 +method=cml_01 optimizer=sgd training.device="$DEVICE" hydra.run.dir='./results/ablation/ci_cifar10/resnet20/cml_merging_stocazzo/mlp' experiment.experiments=2 +method.merging_strategy=mlp +scenario.shuffle_first=true experiment.load=true
+python main.py +scenario=class_incremental_cifar10 +model=resnet20 +training=cifar10 +method=cml_01 optimizer=sgd training.device="$DEVICE" hydra.run.dir='./results/ablation/ci_cifar10/resnet20/cml_merging_stocazzo/offset' experiment.experiments=2 +method.merging_strategy=offset +scenario.shuffle_first=true experiment.load=true
+python main.py +scenario=class_incremental_cifar10 +model=resnet20 +training=cifar10 +method=cml_01 optimizer=sgd training.device="$DEVICE" hydra.run.dir='./results/ablation/ci_cifar10/resnet20/cml_merging_stocazzo/none' experiment.experiments=2 +method.merging_strategy=none +scenario.shuffle_first=true experiment.load=true
+
+
+python main.py +scenario=class_incremental_cifar10 +model=resnet20 +training=cifar10 +method=cml_01 optimizer=sgd training.device="$DEVICE" hydra.run.dir='./results/ablation/ci_cifar10/resnet20/cml_merging_stocazzo/proj_scale_mlp' +method.centroids_merging_strategy=mlp experiment.experiments=1
+python main.py +scenario=class_incremental_cifar10 +model=resnet20 +training=cifar10 +method=cml_01 optimizer=sgd training.device="$DEVICE" hydra.run.dir='./results/ablation/ci_cifar10/resnet20/cml_merging_stocazzo/proj_scale_offset' +method.centroids_merging_strategy=offset experiment.experiments=1
+python main.py +scenario=class_incremental_cifar10 +model=resnet20 +training=cifar10 +method=cml_01 optimizer=sgd training.device="$DEVICE" hydra.run.dir='./results/ablation/ci_cifar10/resnet20/cml_merging_stocazzo/proj_scale_none' +method.centroids_merging_strategy=none experiment.experiments=1
+
+python main.py +scenario=class_incremental_cifar10 +model=resnet20 +training=cifar10 +method=cml_01 optimizer=sgd training.device="$DEVICE" hydra.run.dir='./results/ablation/ci_cifar10/resnet20/cml_merging_stocazzo/mlp_proj_scale' +method.merging_strategy=mlp +method.centroids_merging_strategy=scale_translate experiment.experiments=1
+python main.py +scenario=class_incremental_cifar10 +model=resnet20 +training=cifar10 +method=cml_01 optimizer=sgd training.device="$DEVICE" hydra.run.dir='./results/ablation/ci_cifar10/resnet20/cml_merging_stocazzo/mlp_off' +method.merging_strategy=mlp +method.centroids_merging_strategy=offset experiment.experiments=1
+python main.py +scenario=class_incremental_cifar10 +model=resnet20 +training=cifar10 +method=cml_01 optimizer=sgd training.device="$DEVICE" hydra.run.dir='./results/ablation/ci_cifar10/resnet20/cml_merging_stocazzo/mlp_none' +method.merging_strategy=mlp +method.centroids_merging_strategy=none experiment.experiments=1
+
+python main.py +scenario=class_incremental_cifar10 +model=resnet20 +training=cifar10 +method=cml_01 optimizer=sgd training.device="$DEVICE" hydra.run.dir='./results/ablation/ci_cifar10/resnet20/cml_merging_stocazzo/offset_proj_scale' +method.merging_strategy=offset +method.centroids_merging_strategy=scale_translate experiment.experiments=1
+python main.py +scenario=class_incremental_cifar10 +model=resnet20 +training=cifar10 +method=cml_01 optimizer=sgd training.device="$DEVICE" hydra.run.dir='./results/ablation/ci_cifar10/resnet20/cml_merging_stocazzo/offset_mlp' +method.merging_strategy=offset +method.centroids_merging_strategy=mlp experiment.experiments=1
+python main.py +scenario=class_incremental_cifar10 +model=resnet20 +training=cifar10 +method=cml_01 optimizer=sgd training.device="$DEVICE" hydra.run.dir='./results/ablation/ci_cifar10/resnet20/cml_merging_stocazzo/offset_none' +method.merging_strategy=offset +method.centroids_merging_strategy=none experiment.experiments=1
+
+python main.py +scenario=class_incremental_cifar10 +model=resnet20 +training=cifar10 +method=cml_01 optimizer=sgd training.device="$DEVICE" hydra.run.dir='./results/ablation/ci_cifar10/resnet20/cml_merging_stocazzo/none_proj_scale' +method.merging_strategy=none +method.centroids_merging_strategy=scale_translate experiment.experiments=1
+python main.py +scenario=class_incremental_cifar10 +model=resnet20 +training=cifar10 +method=cml_01 optimizer=sgd training.device="$DEVICE" hydra.run.dir='./results/ablation/ci_cifar10/resnet20/cml_merging_stocazzo/none_mlp' +method.merging_strategy=none +method.centroids_merging_strategy=mlp experiment.experiments=1
+python main.py +scenario=class_incremental_cifar10 +model=resnet20 +training=cifar10 +method=cml_01 optimizer=sgd training.device="$DEVICE" hydra.run.dir='./results/ablation/ci_cifar10/resnet20/cml_merging_stocazzo/none_offset' +method.merging_strategy=none +method.centroids_merging_strategy=offset experiment.experiments=1

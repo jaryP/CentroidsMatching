@@ -1,0 +1,29 @@
+#!/usr/bin/env bash
+
+DEVICE=$1
+
+# REPLAY
+python main.py +scenario=class_incremental_cifar100 +model=resnet20 +training=cifar100 +method=replay_500 optimizer=sgd  training.device="$DEVICE" hydra.run.dir='./results/memory_experiment/ci_cifar100/resnet20/replay/replay_100' method.mem_size=100 experiment.experiments=1 +scenario.shuffle_first=false
+python main.py +scenario=class_incremental_cifar100 +model=resnet20 +training=cifar100 +method=replay_500 optimizer=sgd  training.device="$DEVICE" hydra.run.dir='./results/memory_experiment/ci_cifar100/resnet20/replay/replay_250' method.mem_size=250 experiment.experiments=1 +scenario.shuffle_first=false
+python main.py +scenario=class_incremental_cifar100 +model=resnet20 +training=cifar100 +method=replay_500 optimizer=sgd  training.device="$DEVICE" hydra.run.dir='./results/memory_experiment/ci_cifar100/resnet20/replay/replay_500' method.mem_size=500 experiment.experiments=1 +scenario.shuffle_first=false
+python main.py +scenario=class_incremental_cifar100 +model=resnet20 +training=cifar100 +method=replay_500 optimizer=sgd  training.device="$DEVICE" hydra.run.dir='./results/memory_experiment/ci_cifar100/resnet20/replay/replay_1000' method.mem_size=1000 experiment.experiments=1 +scenario.shuffle_first=false
+python main.py +scenario=class_incremental_cifar100 +model=resnet20 +training=cifar100 +method=replay_500 optimizer=sgd  training.device="$DEVICE" hydra.run.dir='./results/memory_experiment/ci_cifar100/resnet20/replay/replay_1500' method.mem_size=1500 experiment.experiments=1 +scenario.shuffle_first=false
+python main.py +scenario=class_incremental_cifar100 +model=resnet20 +training=cifar100 +method=replay_500 optimizer=sgd  training.device="$DEVICE" hydra.run.dir='./results/memory_experiment/ci_cifar100/resnet20/replay/replay_2000' method.mem_size=2000 experiment.experiments=1 +scenario.shuffle_first=false
+
+# GEM
+python main.py +scenario=class_incremental_cifar100 +model=resnet20 +training=cifar100 +method=gem_500 optimizer=sgd  training.device="$DEVICE" hydra.run.dir='./results/memory_experiment/ci_cifar100/resnet20/gem/gem_100' method.patterns_per_experience=1 experiment.experiments=1
+python main.py +scenario=class_incremental_cifar100 +model=resnet20 +training=cifar100 +method=gem_500 optimizer=sgd  training.device="$DEVICE" hydra.run.dir='./results/memory_experiment/ci_cifar100/resnet20/gem/gem_250' method.patterns_per_experience=2 experiment.experiments=1
+python main.py +scenario=class_incremental_cifar100 +model=resnet20 +training=cifar100 +method=gem_500 optimizer=sgd  training.device="$DEVICE" hydra.run.dir='./results/memory_experiment/ci_cifar100/resnet20/gem/gem_500' method.patterns_per_experience=5 experiment.experiments=1
+python main.py +scenario=class_incremental_cifar100 +model=resnet20 +training=cifar100 +method=gem_500 optimizer=sgd  training.device="$DEVICE" hydra.run.dir='./results/memory_experiment/ci_cifar100/resnet20/gem/gem_1000' method.patterns_per_experience=10 experiment.experiments=1
+python main.py +scenario=class_incremental_cifar100 +model=resnet20 +training=cifar100 +method=gem_500 optimizer=sgd  training.device="$DEVICE" hydra.run.dir='./results/memory_experiment/ci_cifar100/resnet20/gem/gem_1500' method.patterns_per_experience=15 experiment.experiments=1
+python main.py +scenario=class_incremental_cifar100 +model=resnet20 +training=cifar100 +method=gem_500 optimizer=sgd  training.device="$DEVICE" hydra.run.dir='./results/memory_experiment/ci_cifar100/resnet20/gem/gem_2000' method.patterns_per_experience=20 experiment.experiments=1
+
+#CM
+python main.py +scenario=class_incremental_cifar100 +model=resnet20 +training=cifar100 +method=cml_01 optimizer=sgd  training.device="$DEVICE" hydra.run.dir='./results/memory_experiment/ci_cifar100/resnet20/cml/cml_100_penalty_weight075' experiment.experiments=1 method.memory_parameters.memory_size=100 method.penalty_weight=0.75
+python main.py +scenario=class_incremental_cifar100 +model=resnet20 +training=cifar100 +method=cml_01 optimizer=sgd  training.device="$DEVICE" hydra.run.dir='./results/memory_experiment/ci_cifar100/resnet20/cml/cml_250_penalty_weight075' experiment.experiments=1 method.memory_parameters.memory_size=250 method.penalty_weight=0.75
+python main.py +scenario=class_incremental_cifar100 +model=resnet20 +training=cifar100 +method=cml_01 optimizer=sgd  training.device="$DEVICE" hydra.run.dir='./results/memory_experiment/ci_cifar100/resnet20/cml/cml_500_penalty_weight075' experiment.experiments=1 method.memory_parameters.memory_size=500 method.penalty_weight=0.75
+python main.py +scenario=class_incremental_cifar100 +model=resnet20 +training=cifar100 +method=cml_01 optimizer=sgd  training.device="$DEVICE" hydra.run.dir='./results/memory_experiment/ci_cifar100/resnet20/cml/cml_1000_penalty_weight075' experiment.experiments=1 method.memory_parameters.memory_size=1000 method.penalty_weight=0.75
+python main.py +scenario=class_incremental_cifar100 +model=resnet20 +training=cifar100 +method=cml_01 optimizer=sgd  training.device="$DEVICE" hydra.run.dir='./results/memory_experiment/ci_cifar100/resnet20/cml/cml_1500_penalty_weight075' experiment.experiments=1 method.memory_parameters.memory_size=1500 method.penalty_weight=0.75
+python main.py +scenario=class_incremental_cifar100 +model=resnet20 +training=cifar100 +method=cml_1 optimizer=sgd  training.device="$DEVICE" hydra.run.dir='./results/memory_experiment/ci_cifar100/resnet20/cml/cml_2000_penalty_weight075' experiment.experiments=1 method.memory_parameters.memory_size=2000 method.penalty_weight=0.75
+
+#python main.py +scenario=class_incremental_cifar100 +model=resnet20 +training=cifar100 +method=cml_01 optimizer=sgd +method.penalty_weight=0.75 training.device=4 hydra.run.dir='./results/memory_experiment/ci_cifar100/resnet20/cml/cml_250_penalty_weight075' experiment.experiments=1 method.memory_parameters.memory_size=250 +scenario.shuffle_first=true

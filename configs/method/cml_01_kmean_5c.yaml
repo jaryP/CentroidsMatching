@@ -1,0 +1,8 @@
+name: cml
+penalty_weight: 0.1
+save_name: cml_01
+memory_type: clustering
+memory_parameters:
+  n_clusters: 5
+  cluster_type: kmeans
+  memory_size: 500

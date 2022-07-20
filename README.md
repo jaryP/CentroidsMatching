@@ -1,8 +1,9 @@
 # Centroids Matching: an efficient Continual Learning approach operating in the embedding space
 
-### [Jary Pomponi](https://scholar.google.com/citations?user=Zha7UeoAAAAJ&hl=en&authuser=1), [Simone Scardapane](https://www.sscardapane.it/), and [Aurelio Uncini](http://www.uncini.com/)
+[//]: # (### [Jary Pomponi]&#40;https://scholar.google.com/citations?user=Zha7UeoAAAAJ&hl=en&authuser=1&#41;, [Simone Scardapane]&#40;https://www.sscardapane.it/&#41;, and [Aurelio Uncini]&#40;http://www.uncini.com/&#41;)
 
-[[ArXiv preprint]()]
+[//]: # ()
+[//]: # ([[ArXiv preprint]&#40;&#41;])
 
 ## Abstract :bookmark_tabs:
 
@@ -20,7 +21,7 @@ In the latter scenario, we also use an external memory containing samples from p
 A visual overview of how the approach works is the following:
 
 <p align="center">
-<img src="assets/cm_scenarios.png"/>
+<img src="assets/cm_scenarios.png" width="600" height="400"/>
 <p >
 
 ## How to use the code and replicate the results 

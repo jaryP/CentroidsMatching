@@ -1,0 +1,6 @@
+name: cml
+penalty_weight: 0.1
+save_name: cml_01
+memory_type: distance_coverage
+memory_parameters:
+  samples_per_class: 50
