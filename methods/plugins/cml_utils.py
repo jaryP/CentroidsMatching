@@ -287,14 +287,17 @@ class Projector(nn.Module):
         else:
             self.values = nn.ModuleList()
 
-    def add_task(self, embedding_size):
+    def add_task(self, embedding_size, out_size=None):
         if self.proj_type == 'offset':
             self.values.append(nn.Parameter(torch.randn(embedding_size)))
 
         elif self.proj_type == 'mlp':
+            if out_size is None:
+                out_size = embedding_size
+
             p = nn.Sequential(
                 nn.ReLU(),
-                nn.Linear(embedding_size, embedding_size))
+                nn.Linear(embedding_size, out_size))
 
             self.values.append(p)
 

@@ -37,6 +37,8 @@ class CentroidsMatching(StrategyPlugin):
         self.tasks_centroids = []
 
         self.past_model = None
+        self.past_scaler = None
+
         self.current_centroids = None
         self.similarity = 'euclidean'
         self.multimodal_merging = centroids_merging_strategy
@@ -176,10 +178,9 @@ class CentroidsMatching(StrategyPlugin):
         self.current_centroids = centroids
 
         unique_tasks = torch.unique(tasks)
+
         if len(unique_tasks) == 1:
-
             loss_val = self._loss_f(mb_output, y, centroids).view(-1).mean()
-
         else:
             loss_val = 0
 
@@ -210,6 +211,7 @@ class CentroidsMatching(StrategyPlugin):
                 embs = [avalanche_forward(strategy.model, x, task)
                         for task in range(len(self.tasks_centroids))] + \
                        [avalanche_forward(strategy.model, x, tid)]
+
                 e = self.combine_embeddings(embs)
 
                 centroids = self.tasks_centroids + [self.current_centroids]
@@ -224,6 +226,7 @@ class CentroidsMatching(StrategyPlugin):
         all_embs = [self.scaler(e, task) for task, e in enumerate(embeddings)]
 
         embeddings = torch.stack(all_embs, -1)
+        # embeddings = torch.cat(all_embs, -1)
 
         embeddings = embeddings.mean(-1)
 
@@ -260,6 +263,10 @@ class CentroidsMatching(StrategyPlugin):
 
         self.past_model = deepcopy(strategy.model)
         self.past_model.eval()
+
+        if self.sit:
+            self.past_scaler = deepcopy(self.scaler)
+            self.past_scaler.eval()
 
         num_tasks = len(self.tasks_centroids)
 
@@ -339,12 +346,17 @@ class CentroidsMatching(StrategyPlugin):
                     p_e = avalanche_forward(self.past_model, x, i)
                     c_e = avalanche_forward(strategy.model, x, i)
 
+                    if self.sit and len(self.tasks_centroids) > 1:
+                        p_e = self.past_scaler(p_e, i)
+                        c_e = self.scaler(c_e, i)
+
                     _dist = torch.norm(p_e - c_e, p=2, dim=1)
 
                     dist += _dist.mean()
 
-                dist = dist / len(self.tasks_centroids)
-                dist = dist * self.penalty_weight
+                # dist = dist / len(self.tasks_centroids)
+                dist = dist
+                dist = dist.mean()
 
             strategy.loss += dist
 
