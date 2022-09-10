@@ -98,6 +98,10 @@ def get_cl_model(model_name: str,
                  cml_out_features: int = None,
                  is_stream: bool = False):
     backbone = get_backbone(model_name, channels=input_shape[0])
+
+    if method_name in ['cope', 'mcml']:
+        return backbone
+
     x = torch.randn((1,) + input_shape)
     o = backbone(x)
 

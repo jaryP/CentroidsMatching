@@ -1,9 +1,12 @@
 from collections import defaultdict
-from typing import Optional, List
+from typing import Optional, List, Sequence
 
 import numpy as np
-from avalanche.benchmarks.utils import AvalancheSubset
+import torch
+from avalanche.benchmarks import Experience
+from avalanche.benchmarks.utils import AvalancheSubset, AvalancheConcatDataset
 from avalanche.benchmarks.utils.data_loader import TaskBalancedDataLoader
+from avalanche.models import DynamicModule
 from avalanche.training import BaseStrategy
 from avalanche.training.plugins import StrategyPlugin, EvaluationPlugin
 from avalanche.training.plugins.evaluation import default_logger
@@ -12,10 +15,12 @@ from torch.nn.modules.batchnorm import _BatchNorm
 from torch.optim import Optimizer
 from torch.utils.data import DataLoader
 
-from methods.plugins.cml import CentroidsMatching
+from methods.plugins.cml import CentroidsMatching, MemoryCentroidsMatching
 from methods.plugins.cml_utils import BatchNormModelWrap
+from methods.plugins.cope import ContinualPrototypeEvolution
 from methods.plugins.er import EmbeddingRegularizationPlugin
 from methods.plugins.ewc import EWCCustomPlugin
+from methods.plugins.ssil import SeparatedSoftmax
 from models.utils import CombinedModel
 
 
@@ -103,7 +108,8 @@ class ContinualMetricLearning(BaseStrategy):
                  plugins: Optional[List[StrategyPlugin]] = None,
                  evaluator: EvaluationPlugin = default_logger, eval_every=-1):
 
-        if not sit and any(isinstance(module, _BatchNorm) for module in model.modules()):
+        if not sit and any(
+                isinstance(module, _BatchNorm) for module in model.modules()):
             model = BatchNormModelWrap(model)
 
         rp = CentroidsMatching(penalty_weight, sit,
@@ -151,8 +157,10 @@ class ContinualMetricLearning(BaseStrategy):
             dev_idx = idx[:dev_i]
             train_idx = idx[dev_i:]
 
-            self.experience.dataset = AvalancheSubset(dataset.train(), train_idx)
-            self.experience.dev_dataset = AvalancheSubset(dataset.eval(), dev_idx)
+            self.experience.dataset = AvalancheSubset(dataset.train(),
+                                                      train_idx)
+            self.experience.dev_dataset = AvalancheSubset(dataset.eval(),
+                                                          dev_idx)
 
         self.adapted_dataset = self.experience.dataset
 
@@ -174,6 +182,314 @@ class ContinualMetricLearning(BaseStrategy):
         res = super().forward()
         if not self.model.training:
             res = self.rp.calculate_classes(self, res)
+        return res
+
+
+class MemoryContinualMetricLearning(BaseStrategy):
+    def __init__(self,
+                 model: CombinedModel,
+                 dev_split_size: float,
+                 optimizer: Optimizer,
+                 criterion,
+                 train_mb_size: int = 1,
+                 train_epochs: int = 1,
+                 eval_mb_size: int = None,
+                 device=None,
+                 sit: bool = False,
+                 memory_size: int = 500,
+                 plugins: Optional[List[StrategyPlugin]] = None,
+                 evaluator: EvaluationPlugin = default_logger, eval_every=-1):
+
+        rp = MemoryCentroidsMatching(
+            sit=sit,
+            memory_size=memory_size)
+
+        self.rp = rp
+
+        if plugins is None:
+            plugins = [rp]
+        else:
+            plugins.append(rp)
+
+        self.dev_split_size = dev_split_size
+        self.dev_dataloader = None
+
+        super().__init__(
+            model, optimizer, criterion,
+            train_mb_size=train_mb_size,
+            train_epochs=train_epochs,
+            eval_mb_size=eval_mb_size, device=device,
+            plugins=plugins,
+            evaluator=evaluator, eval_every=eval_every)
+
+    def train_dataset_adaptation(self, **kwargs):
+        """ Initialize `self.adapted_dataset`. """
+
+        exp_n = self.experience.current_experience
+
+        if not hasattr(self.experience, 'dev_dataset'):
+            dataset = self.experience.dataset
+
+            idx = np.arange(len(dataset))
+            np.random.shuffle(idx)
+
+            if isinstance(self.dev_split_size, int):
+                dev_i = self.dev_split_size
+            else:
+                dev_i = int(len(idx) * self.dev_split_size)
+
+            dev_idx = idx[:dev_i]
+            train_idx = idx[dev_i:]
+
+            self.experience.dataset = AvalancheSubset(dataset.train(),
+                                                      train_idx)
+            self.experience.dev_dataset = AvalancheSubset(dataset.eval(),
+                                                          dev_idx)
+
+        self.adapted_dataset = self.experience.dataset
+
+    def make_train_dataloader(self, num_workers=0, shuffle=True,
+                              pin_memory=True, **kwargs):
+
+        self.dataloader = DataLoader(
+            self.adapted_dataset,
+            num_workers=num_workers,
+            batch_size=self.eval_mb_size,
+            pin_memory=pin_memory)
+
+    def criterion(self):
+        """ Loss function. """
+        loss = self.rp.loss(self)
+        return loss
+
+    def forward(self):
+        res = super().forward()
+        if not self.model.training:
+            res = self.rp.calculate_classes(self, res)
+        return res
+
+
+class SeparatedSoftmaxIncrementalLearning(BaseStrategy):
+
+    def __init__(self,
+                 model: CombinedModel,
+                 optimizer: Optimizer,
+                 criterion,
+                 train_mb_size: int = 1,
+                 train_epochs: int = 1,
+                 eval_mb_size: int = None,
+                 device=None,
+                 sit_memory_size: int = 500,
+                 plugins: Optional[List[StrategyPlugin]] = None,
+                 evaluator: EvaluationPlugin = default_logger, eval_every=-1):
+
+        rp = SeparatedSoftmax(mem_size=sit_memory_size)
+
+        self.rp = rp
+
+        if plugins is None:
+            plugins = [rp]
+        else:
+            plugins.append(rp)
+
+        super().__init__(
+            model, optimizer, criterion,
+            train_mb_size=train_mb_size,
+            train_epochs=train_epochs,
+            eval_mb_size=eval_mb_size, device=device,
+            plugins=plugins,
+            evaluator=evaluator, eval_every=eval_every)
+
+
+class CoPE(BaseStrategy):
+
+    def __init__(self,
+                 model: CombinedModel,
+                 optimizer: Optimizer,
+                 criterion,
+                 train_mb_size: int = 1,
+                 train_epochs: int = 1,
+                 eval_mb_size: int = None,
+                 device=None,
+                 memory_size: int = 500,
+                 plugins: Optional[List[StrategyPlugin]] = None,
+                 evaluator: EvaluationPlugin = default_logger, eval_every=-1):
+
+        self.experiences = None
+
+        rp = ContinualPrototypeEvolution(memory_size=memory_size)
+
+        self.rp = rp
+
+        if plugins is None:
+            plugins = [rp]
+        else:
+            plugins.append(rp)
+
+        super().__init__(
+            model, optimizer, criterion,
+            train_mb_size=train_mb_size,
+            train_epochs=train_epochs,
+            eval_mb_size=eval_mb_size, device=device,
+            plugins=plugins,
+            evaluator=evaluator, eval_every=eval_every)
+
+    # def train(self, experiences,
+    #           eval_streams=None,
+    #           **kwargs):
+    #     """ Training loop. if experiences is a single element trains on it.
+    #     If it is a sequence, trains the model on each experience in order.
+    #     This is different from joint training on the entire stream.
+    #     It returns a dictionary with last recorded value for each metric.
+    #
+    #     :param experiences: single Experience or sequence.
+    #     :param eval_streams: list of streams for evaluation.
+    #         If None: use training experiences for evaluation.
+    #         Use [] if you do not want to evaluate during training.
+    #
+    #     :return: dictionary containing last recorded value for
+    #         each metric name.
+    #     """
+    #     self.is_training = True
+    #     self._stop_training = False
+    #
+    #     self.model.train()
+    #     self.model.to(self.device)
+    #
+    #     # Normalize training and eval data.
+    #     if not isinstance(experiences, Sequence):
+    #         experiences = [experiences]
+    #
+    #     if eval_streams is None:
+    #         eval_streams = [experiences]
+    #
+    #     self._before_training(**kwargs)
+    #
+    #     self._periodic_eval(eval_streams, do_final=False, do_initial=True)
+    #
+    #     self.experiences = experiences
+    #
+    #     self.model.train()
+    #
+    #     if eval_streams is None:
+    #         eval_streams = self.experiences
+    #
+    #     for i, exp in enumerate(eval_streams):
+    #         if not isinstance(exp, Sequence):
+    #             eval_streams[i] = [exp]
+    #
+    #     # Data Adaptation (e.g. add new samples/data augmentation)
+    #     self._before_train_dataset_adaptation(**kwargs)
+    #     self.train_dataset_adaptation(**kwargs)
+    #     self._after_train_dataset_adaptation(**kwargs)
+    #     self.make_train_dataloader(**kwargs)
+    #
+    #     self.experience = self.adapted_dataset
+    #
+    #     # Model Adaptation (e.g. freeze/add new units)
+    #     self.model = self.model_adaptation()
+    #     self.make_optimizer()
+    #
+    #     self._before_training_exp(**kwargs)
+    #
+    #     do_final = True
+    #     if self.eval_every > 0 and \
+    #             (self.train_epochs - 1) % self.eval_every == 0:
+    #         do_final = False
+    #
+    #     self._before_training_epoch(**kwargs)
+    #     self.training_epoch(**kwargs)
+    #     self._after_training_epoch(**kwargs)
+    #     self._periodic_eval(eval_streams, do_final=False)
+    #
+    #     # Final evaluation
+    #     self._periodic_eval(eval_streams, do_final=do_final)
+    #     self._after_training_exp(**kwargs)
+    #
+    #     self._after_training(**kwargs)
+    #
+    #     res = self.evaluator.get_last_metrics()
+    #     return res
+    #
+    # def train_exp(self, experience: Experience, eval_streams=None, **kwargs):
+    #     """ Training loop over a single Experience object.
+    #
+    #     :param experience: CL experience information.
+    #     :param eval_streams: list of streams for evaluation.
+    #         If None: use the training experience for evaluation.
+    #         Use [] if you do not want to evaluate during training.
+    #     :param kwargs: custom arguments.
+    #     """
+    #     self.experience = experience
+    #     self.model.train()
+    #
+    #     if eval_streams is None:
+    #         eval_streams = [experience]
+    #     for i, exp in enumerate(eval_streams):
+    #         if not isinstance(exp, Sequence):
+    #             eval_streams[i] = [exp]
+    #
+    #     # Data Adaptation (e.g. add new samples/data augmentation)
+    #     self._before_train_dataset_adaptation(**kwargs)
+    #     self.train_dataset_adaptation(**kwargs)
+    #     self._after_train_dataset_adaptation(**kwargs)
+    #     self.make_train_dataloader(**kwargs)
+    #
+    #     # Model Adaptation (e.g. freeze/add new units)
+    #     self.model = self.model_adaptation()
+    #     self.make_optimizer()
+    #
+    #     self._before_training_exp(**kwargs)
+    #
+    #     do_final = True
+    #     if self.eval_every > 0 and \
+    #             (self.train_epochs - 1) % self.eval_every == 0:
+    #         do_final = False
+    #
+    #     for _ in range(self.train_epochs):
+    #         self._before_training_epoch(**kwargs)
+    #
+    #         if self._stop_training:  # Early stopping
+    #             self._stop_training = False
+    #             break
+    #
+    #         self.training_epoch(**kwargs)
+    #         self._after_training_epoch(**kwargs)
+    #         self._periodic_eval(eval_streams, do_final=False)
+    #
+    #     # Final evaluation
+    #     self._periodic_eval(eval_streams, do_final=do_final)
+    #     self._after_training_exp(**kwargs)
+    #
+    # def model_adaptation(self, model=None):
+    #     """Adapts the model to the current data.
+    #
+    #     Calls the :class:`~avalanche.models.DynamicModule`s adaptation.
+    #     """
+    #     if model is None:
+    #         model = self.model
+    #
+    #     for module in model.modules():
+    #         if isinstance(module, DynamicModule):
+    #             module.adaptation(self.experience)
+    #     return model.to(self.device)
+    #
+    # def train_dataset_adaptation(self, **kwargs):
+    #     """ Initialize `self.adapted_dataset`. """
+    #     self.adapted_dataset = AvalancheConcatDataset([exp.dataset.train() for exp in self.experiences])
+
+    def criterion(self):
+        """ Loss function. """
+        loss = self.rp.loss(self)
+        return loss
+
+    def forward(self):
+        res = super().forward()
+        res = torch.nn.functional.normalize(res, p=2, dim=1)
+        if not self.model.training:
+            # else:
+            res = self.rp.calculate_classes(self, res)
+
         return res
 
 

@@ -2,7 +2,7 @@
 
 DEVICE=$1
 
-declare -a arr=("gem" "ewc" "cml" "naive" "cumulative" "replay" "oewc")
+declare -a arr=("gem" "ewc" "cml" "naive" "cumulative" "replay" "oewc" "ssil" "cope")
 
 for i in "${arr[@]}"
 do

@@ -3,7 +3,8 @@ from avalanche.training import Cumulative, GEM, Replay, Naive, JointTraining, \
 from avalanche.training.plugins import GEMPlugin, ReplayPlugin
 
 from methods.strategies import EmbeddingRegularization, \
-    ContinualMetricLearning, CustomEWC
+    ContinualMetricLearning, CustomEWC, SeparatedSoftmaxIncrementalLearning, \
+    CoPE, MemoryContinualMetricLearning
 
 from models.utils import CombinedModel
 
@@ -103,10 +104,16 @@ def get_trainer(name, tasks, sit: bool = False, **kwargs):
                                            sit_memory_size=kwargs.
                                            get('sit_memory_size', 500),
                                            proj_w=kwargs.get('proj_w', 1),
-                                           merging_strategy=kwargs.get('merging_strategy', 'scale_translate'),
-                                           memory_parameters=kwargs.get('memory_parameters', {}),
-                                           memory_type=kwargs.get('memory_type', 'random'),
-                                           centroids_merging_strategy=kwargs.get('centroids_merging_strategy', 'None'),
+                                           merging_strategy=kwargs.get(
+                                               'merging_strategy',
+                                               'scale_translate'),
+                                           memory_parameters=kwargs.get(
+                                               'memory_parameters', {}),
+                                           memory_type=kwargs.get('memory_type',
+                                                                  'random'),
+                                           centroids_merging_strategy=kwargs.get(
+                                               'centroids_merging_strategy',
+                                               'None'),
                                            num_experiences=num_experiences,
                                            optimizer=optimizer,
                                            criterion=criterion,
@@ -116,6 +123,20 @@ def get_trainer(name, tasks, sit: bool = False, **kwargs):
                                            sit=sit,
                                            evaluator=evaluator,
                                            eval_every=-1)
+        elif name == 'mcml':
+            return MemoryContinualMetricLearning(model=model,
+                                                 dev_split_size=kwargs.
+                                                 get('dev_split_size', 100),
+                                                 memory_size=kwargs.
+                                                 get('memory_size', 500),
+                                                 optimizer=optimizer,
+                                                 criterion=criterion,
+                                                 train_mb_size=train_mb_size,
+                                                 train_epochs=train_epochs,
+                                                 device=device,
+                                                 sit=sit,
+                                                 evaluator=evaluator,
+                                                 eval_every=-1)
         elif name == 'icarl':
             return ICaRL(feature_extractor=model.feature_extractor,
                          classifier=model.classifier,
@@ -128,6 +149,22 @@ def get_trainer(name, tasks, sit: bool = False, **kwargs):
                          train_epochs=train_epochs,
                          device=device,
                          evaluator=evaluator)
+        elif name == 'ssil':
+            return SeparatedSoftmaxIncrementalLearning(
+                model=model,
+                sit_memory_size=kwargs.get('memory_size'),
+                optimizer=optimizer,
+                criterion=criterion,
+                train_mb_size=train_mb_size,
+                train_epochs=train_epochs,
+                device=device,
+                evaluator=evaluator
+            )
+        elif name == 'cope':
+            return CoPE(memory_size=kwargs['memory_size'],
+                        model=model, criterion=criterion, optimizer=optimizer,
+                        train_epochs=train_epochs, train_mb_size=train_mb_size,
+                        evaluator=evaluator, device=device)
         else:
             assert False, f'CL method not found {name.lower()}'
 

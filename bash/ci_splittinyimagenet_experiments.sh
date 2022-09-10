@@ -25,6 +25,12 @@ cumulative)
 replay)
   python main.py experiment=base2 +scenario=class_incremental_tinyimagenet +model=resnet20 +training=tinyimagenet +method=replay_1000 optimizer=sgd  training.device="$DEVICE" hydra.run.dir='./results/ci_tinyimagenet/resnet20/replay/replay_1000'
 ;;
+ssil)
+  python main.py experiment=base1 experiment.load=false training.epochs=100 experiment=base2 +scenario=class_incremental_tinyimagenet +model=resnet20 +training=tinyimagenet +method=ssil method.memory_size=1000 optimizer=sgd  training.device="$DEVICE" hydra.run.dir='./results/ci_tinyimagenet/resnet20/ssil/ssil_1000'
+;;
+cope)
+  python main.py experiment=base2 +scenario=class_incremental_tinyimagenet +model=resnet20 +training=tinyimagenet +method=cope optimizer=sgd  training.device="$DEVICE" hydra.run.dir='./results/ci_tinyimagenet/resnet20/cope/cope_500'
+;;
 *)
   echo -n "Unrecognized method"
 esac

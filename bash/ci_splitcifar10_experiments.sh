@@ -28,6 +28,12 @@ icarl)
 replay)
   python main.py +scenario=class_incremental_cifar10 +model=resnet20 +training=cifar10 +method=replay_500 optimizer=sgd  training.device="$DEVICE" hydra.run.dir='./results/ci_cifar10/resnet20/replay/replay_500'
 ;;
+ssil)
+  python main.py experiment=base1 training.epochs=100 experiment.load=false +scenario=class_incremental_cifar10 +model=resnet20 +training=cifar10 +method=ssil optimizer=sgd  training.device="$DEVICE" hydra.run.dir='./results/ci_cifar10/resnet20/ssil/ssil_500'
+;;
+cope)
+  python main.py +scenario=class_incremental_cifar10 +model=resnet20 +training=cifar10 +method=cope optimizer=sgd  training.device="$DEVICE" hydra.run.dir='./results/ci_cifar10/resnet20/cope/cope_500'
+;;
 *)
   echo -n "Unrecognized method"
 esac

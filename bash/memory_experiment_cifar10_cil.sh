@@ -2,7 +2,7 @@
 
 DEVICE=$1
 
-#CM
+# CM
 python main.py +scenario=class_incremental_cifar10 +model=resnet20 +training=cifar10 +method=cml_01 optimizer=sgd +method.proj_w=1 training.device="$DEVICE" hydra.run.dir='./results/memory_experiment/ci_cifar10/resnet20/cml/cml_100' experiment.experiments=1 method.memory_parameters.memory_size=100 +scenario.shuffle_first=true experiment.load=false
 python main.py +scenario=class_incremental_cifar10 +model=resnet20 +training=cifar10 +method=cml_01 optimizer=sgd +method.proj_w=1 training.device="$DEVICE" hydra.run.dir='./results/memory_experiment/ci_cifar10/resnet20/cml/cml_250' experiment.experiments=1 method.memory_parameters.memory_size=250 +scenario.shuffle_first=true experiment.load=false
 python main.py +scenario=class_incremental_cifar10 +model=resnet20 +training=cifar10 +method=cml_01 optimizer=sgd +method.proj_w=1 training.device="$DEVICE" hydra.run.dir='./results/memory_experiment/ci_cifar10/resnet20/cml/cml_500' experiment.experiments=1 method.memory_parameters.memory_size=500 +scenario.shuffle_first=true experiment.load=false
@@ -26,4 +26,18 @@ python main.py +scenario=class_incremental_cifar10 +model=resnet20 +training=cif
 python main.py +scenario=class_incremental_cifar10 +model=resnet20 +training=cifar10 +method=gem_500 optimizer=sgd  training.device="$DEVICE" hydra.run.dir='./results/memory_experiment/ci_cifar10/resnet20/gem/gem_1500' method.patterns_per_experience=300 experiment.experiments=1
 python main.py +scenario=class_incremental_cifar10 +model=resnet20 +training=cifar10 +method=gem_500 optimizer=sgd  training.device="$DEVICE" hydra.run.dir='./results/memory_experiment/ci_cifar10/resnet20/gem/gem_2000' method.patterns_per_experience=500 experiment.experiments=1
 
+# SSIL
+python main.py +scenario=class_incremental_cifar10 +model=resnet20 +training=cifar10 +method=ssil optimizer=sgd  training.device="$DEVICE" hydra.run.dir='./results/memory_experiment/ci_cifar10/resnet20/ssil/ssil_100' method.memory_size=100 experiment.experiments=1
+python main.py +scenario=class_incremental_cifar10 +model=resnet20 +training=cifar10 +method=ssil optimizer=sgd  training.device="$DEVICE" hydra.run.dir='./results/memory_experiment/ci_cifar10/resnet20/ssil/ssil_250' method.memory_size=250 experiment.experiments=1
+python main.py +scenario=class_incremental_cifar10 +model=resnet20 +training=cifar10 +method=ssil optimizer=sgd  training.device="$DEVICE" hydra.run.dir='./results/memory_experiment/ci_cifar10/resnet20/ssil/ssil_500' method.memory_size=500 experiment.experiments=1
+python main.py +scenario=class_incremental_cifar10 +model=resnet20 +training=cifar10 +method=ssil optimizer=sgd  training.device="$DEVICE" hydra.run.dir='./results/memory_experiment/ci_cifar10/resnet20/ssil/ssil_1000' method.memory_size=1000 experiment.experiments=1
+python main.py +scenario=class_incremental_cifar10 +model=resnet20 +training=cifar10 +method=ssil optimizer=sgd  training.device="$DEVICE" hydra.run.dir='./results/memory_experiment/ci_cifar10/resnet20/ssil/ssil_1500' method.memory_size=1500 experiment.experiments=1
+python main.py +scenario=class_incremental_cifar10 +model=resnet20 +training=cifar10 +method=ssil optimizer=sgd  training.device="$DEVICE" hydra.run.dir='./results/memory_experiment/ci_cifar10/resnet20/ssil/ssil_2000' method.memory_size=2000 experiment.experiments=1
 
+# COPE
+python main.py +scenario=class_incremental_cifar10 +model=resnet20 +training=cifar10 +method=cope optimizer=sgd  training.device="$DEVICE" hydra.run.dir='./results/memory_experiment/ci_cifar10/resnet20/cope/cope_100' method.memory_size=20 experiment.experiments=1
+python main.py +scenario=class_incremental_cifar10 +model=resnet20 +training=cifar10 +method=cope optimizer=sgd  training.device="$DEVICE" hydra.run.dir='./results/memory_experiment/ci_cifar10/resnet20/cope/cope_250' method.memory_size=50 experiment.experiments=1
+python main.py +scenario=class_incremental_cifar10 +model=resnet20 +training=cifar10 +method=cope optimizer=sgd  training.device="$DEVICE" hydra.run.dir='./results/memory_experiment/ci_cifar10/resnet20/cope/cope_500' method.memory_size=100 experiment.experiments=1
+python main.py +scenario=class_incremental_cifar10 +model=resnet20 +training=cifar10 +method=cope optimizer=sgd  training.device="$DEVICE" hydra.run.dir='./results/memory_experiment/ci_cifar10/resnet20/cope/cope_1000' method.memory_size=200 experiment.experiments=1
+python main.py +scenario=class_incremental_cifar10 +model=resnet20 +training=cifar10 +method=cope optimizer=sgd  training.device="$DEVICE" hydra.run.dir='./results/memory_experiment/ci_cifar10/resnet20/cope/cope_1500' method.memory_size=300 experiment.experiments=1
+python main.py +scenario=class_incremental_cifar10 +model=resnet20 +training=cifar10 +method=cope optimizer=sgd  training.device="$DEVICE" hydra.run.dir='./results/memory_experiment/ci_cifar10/resnet20/cope/cope_2000' method.memory_size=500 experiment.experiments=1

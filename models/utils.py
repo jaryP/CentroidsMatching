@@ -1,10 +1,7 @@
-from typing import Union, Callable, Tuple, Dict, Iterator
-
 import torch
 from avalanche.benchmarks.utils import AvalancheDataset
 from avalanche.benchmarks.utils.dataset_utils import ConstantSequence
-from avalanche.models import DynamicModule, MultiTaskModule
-from avalanche.models.helper_method import MultiTaskDecorator
+from avalanche.models import MultiTaskModule
 from torch import nn
 
 

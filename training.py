@@ -9,9 +9,11 @@ from typing import List
 
 import numpy as np
 import torch
+from avalanche.benchmarks import data_incremental_benchmark
 from avalanche.evaluation.metric_results import MetricValue
 from avalanche.evaluation.metric_utils import phase_and_task, stream_type
-from avalanche.evaluation.metrics import accuracy_metrics, bwt_metrics
+from avalanche.evaluation.metrics import accuracy_metrics, bwt_metrics, \
+    timing_metrics
 from avalanche.logging import StrategyLogger
 from avalanche.logging.text_logging import UNSUPPORTED_TYPES, TextLogger
 from avalanche.training import BaseStrategy
@@ -195,17 +197,23 @@ def avalanche_training(cfg: DictConfig):
         os.makedirs(experiment_path, exist_ok=True)
 
         results_path = os.path.join(experiment_path, 'results.json')
+        train_results_path = os.path.join(experiment_path, 'train_results.json')
 
-        if plugin_name in ['icarl', 'er'] and sit:
-            assert sit, 'ICarL and ER only work under Class Incremental Scenario'
+        if plugin_name in ['icarl', 'cope', 'ssil'] and not sit:
+            assert sit, 'ICarL , CoPE, and ssil only work under Class Incremental Scenario'
+
+        if plugin_name in ['er'] and sit:
+            assert sit, 'ER only work under Task Incremental Scenario'
 
         tasks = get_dataset_nc_scenario(name=dataset,
                                         scenario=scenario_name,
                                         n_tasks=n_tasks,
-                                        shuffle=shuffle_first if exp_n == 1 else shuffle,
+                                        shuffle=shuffle_first if exp_n == 0 else shuffle,
                                         til=task_incremental_learning,
                                         seed=seed,
-                                        force_sit=force_sit)
+                                        force_sit=force_sit,
+                                        method_name=plugin_name,
+                                        sit_with_labels=True)
 
         log.info(f'Original classes: {tasks.classes_order_original_ids}')
         log.info(f'Original classes per exp: {tasks.original_classes_in_exp}')
@@ -214,6 +222,12 @@ def avalanche_training(cfg: DictConfig):
             log.info(f'Results loaded')
             with open(results_path) as json_file:
                 results = json.load(json_file)
+
+            if os.path.exists(train_results_path):
+                with open(train_results_path) as json_file:
+                    train_res = json.load(json_file)
+            else:
+                train_res = results
         else:
 
             img, _, _ = tasks.train_stream[0].dataset[0]
@@ -230,6 +244,7 @@ def avalanche_training(cfg: DictConfig):
                 accuracy_metrics(minibatch=False, epoch_running=False,
                                  stream=True, trained_experience=True),
                 bwt_metrics(experience=True, stream=True),
+                timing_metrics(minibatch=True, epoch=True, experience=False),
                 loggers=[
                     TextLogger(),
                     # CustomTextLogger(),
@@ -248,6 +263,8 @@ def avalanche_training(cfg: DictConfig):
                                   tasks=tasks,
                                   sit=sit)
 
+            epochs = epochs if method['name'].lower() != 'cope' else 1
+
             strategy = trainer(model=model,
                                criterion=criterion,
                                optimizer=opt,
@@ -258,15 +275,48 @@ def avalanche_training(cfg: DictConfig):
 
             results = []
 
-            for i, experience in enumerate(tasks.train_stream):
-                strategy.train(experiences=experience,
-                               pin_memory=pin_memory,
-                               num_workers=num_workers)
+            indexes = np.arange(len(tasks.train_stream))
 
-                results.append(strategy.eval(tasks.test_stream[:i + 1],
-                                             pin_memory=pin_memory,
-                                             num_workers=num_workers))
+            if method['name'].lower() == 'cope':
+                tasks = data_incremental_benchmark(tasks, batch_size,
+                                                   shuffle=True)
+                indexes = np.arange(len(tasks.train_stream))
+
+                if method.get('shuffle', False):
+                    np.random.shuffle(indexes)
+
+            for i in indexes:
+                # for i, experience in enumerate(tasks.train_stream):
+                experience = tasks.train_stream[i]
+                train_res = strategy.train(experiences=experience,
+                                           pin_memory=pin_memory,
+                                           num_workers=num_workers)
+
+                train_res = strategy.evaluator.all_metric_results
+
+                # mb_times = strategy.evaluator.all_metric_results['Time_MB/train_phase/train_stream/Task000'][1]
+                # start = 0 if len(mb_time_results) == 0 else sum(map(len, mb_time_results))
+
+                # mb_time_results.append(mb_times[start:])
+
+                # train_results.append()
+
+                if method['name'].lower() == 'cope':
+                    results.append(strategy.eval(tasks.test_stream,
+                                                 pin_memory=pin_memory,
+                                                 num_workers=num_workers))
+                else:
+                    results.append(strategy.eval(tasks.test_stream[:i + 1],
+                                                 pin_memory=pin_memory,
+                                                 num_workers=num_workers))
+
             output_file.close()
+
+            with open(results_path, 'w') as f:
+                json.dump(results, f, ensure_ascii=False, indent=4)
+
+            with open(train_results_path, 'w') as f:
+                json.dump(train_res, f, ensure_ascii=False, indent=4)
 
         for res in results:
             average_accuracy = []
@@ -276,11 +326,15 @@ def avalanche_training(cfg: DictConfig):
             average_accuracy = np.mean(average_accuracy)
             res['average_accuracy'] = average_accuracy
 
-        for k, v in results[-1].items():
-            log.info(f'Metric {k}:  {v}')
+        # for k, v in train_res[-1].items():
+        #     log.info(f'Train Metric {k}:  {v}')
 
-        with open(results_path, 'w') as f:
-            json.dump(results, f, ensure_ascii=False, indent=4)
+        for k, v in train_res.items():
+            if k.startswith('Time_MB') or k.startswith('Time_Epoch'):
+                log.info(f'Train {k}: {np.mean(v[1]), np.std(v[1])}')
+
+        for k, v in results[-1].items():
+            log.info(f'Test Metric {k}:  {v}')
 
         all_results.append(results)
 
@@ -299,4 +353,4 @@ def avalanche_training(cfg: DictConfig):
     for k, v in results[-1].items():
         _m = m[k]
         _s = s[k]
-        log.info(f'Metric {k}: mean: {_m*100:.2f}, std: {_s*100:.2f}')
+        log.info(f'Metric {k}: mean: {_m:.2f}, std: {_s:.2f}')
