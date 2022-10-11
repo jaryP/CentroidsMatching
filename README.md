@@ -1,9 +1,9 @@
 # Centroids Matching: an efficient Continual Learning approach operating in the embedding space
 
-[//]: # (### [Jary Pomponi]&#40;https://scholar.google.com/citations?user=Zha7UeoAAAAJ&hl=en&authuser=1&#41;, [Simone Scardapane]&#40;https://www.sscardapane.it/&#41;, and [Aurelio Uncini]&#40;http://www.uncini.com/&#41;)
+### [Jary Pomponi](https://scholar.google.com/citations?user=Zha7UeoAAAAJ&hl=en&authuser=1), [Simone Scardapane](https://www.sscardapane.it/), and [Aurelio Uncini](http://www.uncini.com/)
 
-[//]: # ()
-[//]: # ([[ArXiv preprint]&#40;&#41;])
+[//]: # ([[ArXiv preprint]&#40;https://arxiv.org/abs/2208.02048&#41;][[Journal Link]&#40;&#41;])
+[ArXiv preprint](https://arxiv.org/abs/2208.02048)
 
 ## Abstract :bookmark_tabs:
 
@@ -44,5 +44,10 @@ The required libraries are:
 Please cite our work if you found it useful:
 
 ```
-
+@article{pomponi2022centroids,
+  title={Centroids Matching: an efficient Continual Learning approach operating in the embedding space},
+  author={Pomponi, Jary and Scardapane, Simone and Uncini, Aurelio},
+  journal={arXiv preprint arXiv:2208.02048},
+  year={2022}
+}
 ```

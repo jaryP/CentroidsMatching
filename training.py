@@ -246,8 +246,9 @@ def avalanche_training(cfg: DictConfig):
                 bwt_metrics(experience=True, stream=True),
                 timing_metrics(minibatch=True, epoch=True, experience=False),
                 loggers=[
-                    TextLogger(),
-                    # CustomTextLogger(),
+                    # TextLogger(),
+                    StrategyLogger(),
+                    CustomTextLogger(),
                 ],
             )
 
@@ -263,12 +264,11 @@ def avalanche_training(cfg: DictConfig):
                                   tasks=tasks,
                                   sit=sit)
 
-            epochs = epochs if method['name'].lower() != 'cope' else 1
-
             strategy = trainer(model=model,
                                criterion=criterion,
                                optimizer=opt,
-                               train_epochs=epochs,
+                               train_epochs=epochs
+                               if method['name'].lower() != 'cope' else 1,
                                train_mb_size=batch_size,
                                evaluator=eval_plugin,
                                device=device)
@@ -277,7 +277,7 @@ def avalanche_training(cfg: DictConfig):
 
             indexes = np.arange(len(tasks.train_stream))
 
-            if method['name'].lower() == 'cope':
+            if False and method['name'].lower() == 'cope':
                 tasks = data_incremental_benchmark(tasks, batch_size,
                                                    shuffle=True)
                 indexes = np.arange(len(tasks.train_stream))
@@ -285,27 +285,37 @@ def avalanche_training(cfg: DictConfig):
                 if method.get('shuffle', False):
                     np.random.shuffle(indexes)
 
-            for i in indexes:
-                # for i, experience in enumerate(tasks.train_stream):
-                experience = tasks.train_stream[i]
-                train_res = strategy.train(experiences=experience,
-                                           pin_memory=pin_memory,
-                                           num_workers=num_workers)
+                for _ in range(epochs):
+                    for i in indexes:
+                        # for i, experience in enumerate(tasks.train_stream):
+                        experience = tasks.train_stream[i]
+                        train_res = strategy.train(experiences=experience,
+                                                   pin_memory=pin_memory,
+                                                   num_workers=num_workers)
 
-                train_res = strategy.evaluator.all_metric_results
+                        break
 
-                # mb_times = strategy.evaluator.all_metric_results['Time_MB/train_phase/train_stream/Task000'][1]
-                # start = 0 if len(mb_time_results) == 0 else sum(map(len, mb_time_results))
-
-                # mb_time_results.append(mb_times[start:])
-
-                # train_results.append()
-
-                if method['name'].lower() == 'cope':
                     results.append(strategy.eval(tasks.test_stream,
                                                  pin_memory=pin_memory,
                                                  num_workers=num_workers))
-                else:
+
+            else:
+                for i in indexes:
+                    # for i, experience in enumerate(tasks.train_stream):
+                    experience = tasks.train_stream[i]
+                    train_res = strategy.train(experiences=experience,
+                                               pin_memory=pin_memory,
+                                               num_workers=num_workers)
+
+                    train_res = strategy.evaluator.all_metric_results
+
+                    # mb_times = strategy.evaluator.all_metric_results['Time_MB/train_phase/train_stream/Task000'][1]
+                    # start = 0 if len(mb_time_results) == 0 else sum(map(len, mb_time_results))
+
+                    # mb_time_results.append(mb_times[start:])
+
+                    # train_results.append()
+
                     results.append(strategy.eval(tasks.test_stream[:i + 1],
                                                  pin_memory=pin_memory,
                                                  num_workers=num_workers))

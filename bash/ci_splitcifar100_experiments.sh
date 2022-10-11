@@ -32,7 +32,7 @@ ssil)
   python main.py experiment=base1 experiment.load=false training.epochs=100 +scenario=class_incremental_cifar100 +model=resnet20 +training=cifar10 +method=ssil optimizer=sgd  training.device="$DEVICE" hydra.run.dir='./results/ci_cifar100/resnet20/ssil/ssil_500'
 ;;
 cope)
-  python main.py +scenario=class_incremental_cifar100 +model=resnet20 +training=cifar10 +method=cope optimizer=sgd  training.device="$DEVICE" hydra.run.dir='./results/ci_cifar100/resnet20/cope/cope_2000'
+  python main.py +scenario=class_incremental_cifar100 +model=resnet20 +training=cifar10 +method=cope optimizer=sgd  training.device="$DEVICE" hydra.run.dir='./results/ci_cifar100/resnet20/cope_review/cope_2000'
 ;;
 *)
   echo -n "Unrecognized method"
