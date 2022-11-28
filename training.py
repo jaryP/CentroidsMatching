@@ -277,7 +277,7 @@ def avalanche_training(cfg: DictConfig):
 
             indexes = np.arange(len(tasks.train_stream))
 
-            if False and method['name'].lower() == 'cope':
+            if method['name'].lower() == 'cope':
                 tasks = data_incremental_benchmark(tasks, batch_size,
                                                    shuffle=True)
                 indexes = np.arange(len(tasks.train_stream))
